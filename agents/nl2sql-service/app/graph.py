@@ -1,6 +1,7 @@
 from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
+from app.schema_introspection import get_introspector
 
 
 class AgentState(TypedDict):
@@ -25,46 +26,41 @@ class AgentState(TypedDict):
 
 
 def route_domain(state: AgentState) -> AgentState:
-    """Route question to domain based on keywords"""
-    question_lower = state["question"].lower()
+    """Route question to domain using hybrid approach: JSON mapping + schema introspection"""
+    question = state["question"]
+    allowed_tables = state["allowed_tables"]
     
-    # Keyword-based domain detection
-    if any(word in question_lower for word in ["arrears", "overdue", "owing", "unpaid"]):
-        domain = "arrears"
-    elif any(word in question_lower for word in ["tenancy", "tenancies", "lease", "tenant"]):
-        domain = "tenancy"
-    elif any(word in question_lower for word in ["maintenance", "repair", "job", "vendor"]):
-        domain = "maintenance"
-    elif any(word in question_lower for word in ["inspection", "compliance", "scheduled"]):
-        domain = "inspection"
-    elif any(word in question_lower for word in ["owner", "statement", "distribution"]):
-        domain = "owner_statement"
-    else:
-        domain = "general"
+    # Get introspector singleton
+    introspector = get_introspector()
     
-    state["detected_domain"] = domain
-    state["reasoning"] = f"Detected domain: {domain}"
+    # Try manual mapping first, fallback to schema introspection
+    domain_info = introspector.get_table_info_for_question(question, allowed_tables)
+    
+    state["detected_domain"] = domain_info["domain"]
+    state["reasoning"] = f"Detected domain: {domain_info['domain']} (source: {domain_info['source']}, {domain_info['reason']})"
+    
     return state
 
 
 def schema_context(state: AgentState) -> AgentState:
-    """Scope tables based on detected domain"""
+    """Scope tables based on detected domain using hybrid approach"""
+    question = state["question"]
     domain = state["detected_domain"]
-    all_tables = state["allowed_tables"]
+    allowed_tables = state["allowed_tables"]
     
-    # Domain-specific table scoping
-    domain_table_map = {
-        "arrears": ["Tenancies", "RentLedgerEntries", "Properties", "Tenants"],
-        "tenancy": ["Tenancies", "Properties", "Tenants", "LeaseDocuments"],
-        "maintenance": ["MaintenanceJobs", "Properties", "Vendors"],
-        "inspection": ["Inspections", "Properties", "Tenancies"],
-        "owner_statement": ["OwnerStatements", "Properties", "PropertyOwners", "Owners"],
-        "general": all_tables[:6]  # limiting to first 6 tables for general queries
-    }
+    # Get introspector singleton
+    introspector = get_introspector()
     
-    scoped = domain_table_map.get(domain, all_tables)
-    state["scoped_tables"] = [t for t in scoped if t in all_tables]
+    # Get table mapping (already computed in route_domain, but recalculating for clarity)
+    domain_info = introspector.get_table_info_for_question(question, allowed_tables)
+    
+    # Use tables from domain mapping or introspection
+    scoped_tables = domain_info["tables"]
+    
+    # Ensure all tables are in allowed list
+    state["scoped_tables"] = [t for t in scoped_tables if t in allowed_tables]
     state["reasoning"] += f" | Scoped to tables: {', '.join(state['scoped_tables'])}"
+    
     return state
 
 
@@ -87,22 +83,35 @@ def planner(state: AgentState) -> AgentState:
     # Extract specific limit from query
     question_lower = question.lower()
     words = question_lower.split()
+    
+    # Map text numbers to integers
+    text_numbers = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        "fifteen": 15, "twenty": 20, "thirty": 30, "fifty": 50
+    }
+    
     for i, word in enumerate(words):
+        limit = None
         # Check for patterns like "top 5", "5 top", "first 10", "list 5", "show 3", "show me 3"
         if word.isdigit() and int(word) > 0:
             limit = int(word)
+        elif word in text_numbers:
+            limit = text_numbers[word]
+        
+        if limit:
             # Check context before the number
             if i > 0:
                 prev_word = words[i-1]
                 # Also check for "show me 5" pattern (i > 1)
-                if prev_word in ["top", "first", "list", "show"]:
+                if prev_word in ["top", "first", "list", "show", "most", "recent"]:
                     plan["requested_limit"] = limit
                     break
                 elif i > 1 and prev_word == "me" and words[i-2] == "show":
                     plan["requested_limit"] = limit
                     break
             # Check context after the number
-            if i < len(words) - 1 and words[i+1] in ["top", "first"]:
+            if i < len(words) - 1 and words[i+1] in ["top", "first", "most", "recent"]:
                 plan["requested_limit"] = limit
                 break
     

@@ -1,0 +1,99 @@
+{
+    "domains": {
+        "arrears": {
+            "description": "Rent arrears and overdue payments",
+            "keywords": [
+                "arrears",
+                "overdue",
+                "owing",
+                "unpaid",
+                "outstanding",
+                "debt"
+            ],
+            "tables": [
+                "Tenancies",
+                "RentLedgerEntries",
+                "Properties",
+                "Tenants"
+            ],
+            "primary_table": "RentLedgerEntries",
+            "reason": "Business term 'arrears' maps to RentLedgerEntries table"
+        },
+        "tenancy": {
+            "description": "Tenancy agreements and leases",
+            "keywords": [
+                "tenancy",
+                "tenancies",
+                "lease",
+                "tenant",
+                "rental",
+                "agreement"
+            ],
+            "tables": [
+                "Tenancies",
+                "Properties",
+                "Tenants",
+                "LeaseDocuments"
+            ],
+            "primary_table": "Tenancies",
+            "reason": "Direct mapping to Tenancies table"
+        },
+        "maintenance": {
+            "description": "Maintenance jobs and repairs",
+            "keywords": [
+                "maintenance",
+                "repair",
+                "job",
+                "vendor",
+                "work order",
+                "fix"
+            ],
+            "tables": [
+                "MaintenanceJobs",
+                "Properties",
+                "Vendors"
+            ],
+            "primary_table": "MaintenanceJobs",
+            "reason": "Direct mapping to MaintenanceJobs table"
+        },
+        "owner_statement": {
+            "description": "Owner financial statements",
+            "keywords": [
+                "owner",
+                "statement",
+                "distribution",
+                "payout",
+                "financial"
+            ],
+            "tables": [
+                "OwnerStatements",
+                "Properties",
+                "PropertyOwners",
+                "Owners"
+            ],
+            "primary_table": "OwnerStatements",
+            "reason": "Business term maps to OwnerStatements table"
+        },
+        "inspection": {
+            "description": "Property inspections",
+            "keywords": [
+                "inspection",
+                "inspect",
+                "compliance"
+            ],
+            "tables": [
+                "Inspections",
+                "Properties",
+                "Tenancies"
+            ],
+            "primary_table": "Inspections",
+            "reason": "Direct mapping to Inspections table"
+        }
+    },
+    "schema_introspection": {
+        "enabled": true,
+        "fallback_strategy": "table_name_match",
+        "confidence_threshold": 0.6,
+        "description": "When no manual mapping found, use MySQL INFORMATION_SCHEMA"
+    }
+}

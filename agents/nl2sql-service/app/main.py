@@ -1,17 +1,27 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.models import Nl2SqlGenerateRequest, Nl2SqlGenerateResponse
-from app.graph import nl2sql_graph
+from app.graph import nl2sql_graph  # Template-based
+from app.llm_graph import llm_nl2sql_graph  # LLM-powered
+from app.config import settings
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Choose graph based on environment variable
+USE_LLM = os.getenv("USE_LLM_AGENTS", "false").lower() == "true"
+active_graph = llm_nl2sql_graph if USE_LLM else nl2sql_graph
+mode = "LLM-powered multi-agent" if USE_LLM else "Template-based"
+
+logger.info(f"Starting NL2SQL service in {mode} mode")
+
 app = FastAPI(
     title="NL2SQL Agent Service",
-    description="LangGraph-powered multi-agent SQL generation service",
-    version="1.0.0"
+    description=f"LangGraph-powered SQL generation ({mode})",
+    version="2.0.0"
 )
 
 # CORS for .NET API
@@ -27,10 +37,16 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     """Health check endpoint"""
+    llm_status = "enabled" if USE_LLM else "disabled"
+    if USE_LLM:
+        llm_status += f" ({settings.openai_model if settings.openai_api_key else 'no API key'})"
+    
     return {
         "status": "healthy",
         "service": "nl2sql-agent",
-        "version": "1.0.0"
+        "version": "2.0.0",
+        "mode": mode,
+        "llm_agents": llm_status
     }
 
 
@@ -63,8 +79,8 @@ async def generate_sql(request: Nl2SqlGenerateRequest) -> Nl2SqlGenerateResponse
             "clarification_prompt": ""
         }
         
-        # Run the graph
-        result = nl2sql_graph.invoke(initial_state)
+        # Run the graph (template-based or LLM-powered)
+        result = active_graph.invoke(initial_state)
         
         # Build response
         response = Nl2SqlGenerateResponse(
