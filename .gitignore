@@ -1,0 +1,40 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# .NET
+**/bin/
+**/obj/
+*.user
+*.suo
+*.cache
+.vs/
+
+# Node/Angular
+node_modules/
+dist/
+.angular/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/*.code-workspace
+.idea/
+
+# Database
+*.db
+*.sqlite

@@ -1,0 +1,78 @@
+<div class="container">
+    <header class="header">
+        <h1>🏘️ Property Analytics - NL to SQL</h1>
+        <p class="subtitle">Ask questions about your properties in natural language</p>
+    </header>
+
+    <div class="example-queries">
+        <span class="example-label">Examples:</span>
+        <button class="example-btn" (click)="loadExample('Show active tenancies ending in next 60 days')">
+            Expiring Leases
+        </button>
+        <button class="example-btn" (click)="loadExample('Which tenancies have arrears?')">
+            Arrears
+        </button>
+        <button class="example-btn" (click)="loadExample('Show open maintenance jobs')">
+            Open Jobs
+        </button>
+        <button class="example-btn" (click)="loadExample('List upcoming inspections')">
+            Inspections
+        </button>
+    </div>
+
+    <div class="query-panel">
+        <textarea [(ngModel)]="question"
+            placeholder="Ask a question about your properties... e.g., 'Show active tenancies ending in next 60 days'"
+            class="query-input" rows="3" [disabled]="loading">
+    </textarea>
+
+        <div class="button-group">
+            <button (click)="runQuery()" [disabled]="loading || !question.trim()" class="btn btn-primary">
+                {{ loading ? 'Processing...' : 'Run Query' }}
+            </button>
+            <button (click)="clearResults()" [disabled]="loading || (!response && !error)" class="btn btn-secondary">
+                Clear
+            </button>
+        </div>
+    </div>
+
+    <div *ngIf="error" class="alert alert-error">
+        <strong>Error:</strong> {{ error }}
+    </div>
+
+    <div *ngIf="response?.message && response?.status !== 'success'" class="alert alert-warning">
+        {{ response?.message }}
+    </div>
+
+    <div *ngIf="response && response.status === 'ok'" class="results-panel">
+        <div class="results-header">
+            <h2>Results</h2>
+            <div class="results-meta">
+                <span class="meta-item">{{ response.rowCount }} rows</span>
+                <span class="meta-item" *ngIf="response.executionMs">{{ response.executionMs }}ms</span>
+                <span class="meta-item" *ngIf="response.domain">{{ response.domain }}</span>
+            </div>
+        </div>
+
+        <div *ngIf="response.rows && response.rows.length > 0" class="table-container">
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th *ngFor="let col of getColumnKeys()">{{ col }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let row of response.rows">
+                        <td *ngFor="let col of getColumnKeys()">
+                            {{ row[col] !== null && row[col] !== undefined ? row[col] : '-' }}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div *ngIf="!response.rows || response.rows.length === 0" class="no-results">
+            No results found
+        </div>
+    </div>
+</div>

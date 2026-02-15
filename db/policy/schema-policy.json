@@ -1,0 +1,186 @@
+{
+    "version": "1.0.0",
+    "dialect": "mysql8",
+    "selectOnly": true,
+    "noViews": true,
+    "limitPolicy": {
+        "default": 50,
+        "max": 200
+    },
+    "timeoutPolicyMs": 5000,
+    "tenantColumn": "CustomerId",
+    "tenantRootTables": [
+        "Customers",
+        "Owners",
+        "Properties",
+        "PropertyOwners",
+        "Tenants",
+        "Tenancies",
+        "RentLedgerEntries",
+        "Vendors",
+        "MaintenanceJobs",
+        "Inspections",
+        "OwnerStatements",
+        "OwnerStatementLines"
+    ],
+    "globalReferenceTables": [
+        "RefStatesAU",
+        "RefStatusCodes"
+    ],
+    "allowedTables": [
+        "Customers",
+        "RefStatesAU",
+        "RefStatusCodes",
+        "Owners",
+        "Properties",
+        "PropertyOwners",
+        "Tenants",
+        "Tenancies",
+        "RentLedgerEntries",
+        "Vendors",
+        "MaintenanceJobs",
+        "Inspections",
+        "OwnerStatements",
+        "OwnerStatementLines"
+    ],
+    "allowedJoinEdges": [
+        {
+            "from": "Properties",
+            "fromColumn": "PropertyId",
+            "to": "Tenancies",
+            "toColumn": "PropertyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Tenants",
+            "fromColumn": "TenantId",
+            "to": "Tenancies",
+            "toColumn": "TenantId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Tenancies",
+            "fromColumn": "TenancyId",
+            "to": "RentLedgerEntries",
+            "toColumn": "TenancyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Properties",
+            "fromColumn": "PropertyId",
+            "to": "MaintenanceJobs",
+            "toColumn": "PropertyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Vendors",
+            "fromColumn": "VendorId",
+            "to": "MaintenanceJobs",
+            "toColumn": "VendorId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Properties",
+            "fromColumn": "PropertyId",
+            "to": "Inspections",
+            "toColumn": "PropertyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Tenancies",
+            "fromColumn": "TenancyId",
+            "to": "Inspections",
+            "toColumn": "TenancyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Owners",
+            "fromColumn": "OwnerId",
+            "to": "PropertyOwners",
+            "toColumn": "OwnerId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Properties",
+            "fromColumn": "PropertyId",
+            "to": "PropertyOwners",
+            "toColumn": "PropertyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Owners",
+            "fromColumn": "OwnerId",
+            "to": "OwnerStatements",
+            "toColumn": "OwnerId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "OwnerStatements",
+            "fromColumn": "OwnerStatementId",
+            "to": "OwnerStatementLines",
+            "toColumn": "OwnerStatementId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Properties",
+            "fromColumn": "StateCode",
+            "to": "RefStatesAU",
+            "toColumn": "StateCode",
+            "requireTenantMatch": false
+        }
+    ],
+    "allowedFunctions": [
+        "COUNT",
+        "SUM",
+        "AVG",
+        "MIN",
+        "MAX",
+        "ROUND",
+        "DATEDIFF",
+        "DATE_ADD",
+        "DATE_SUB",
+        "NOW",
+        "CURRENT_DATE",
+        "YEAR",
+        "MONTH",
+        "DAY",
+        "CONCAT",
+        "UPPER",
+        "LOWER",
+        "TRIM",
+        "COALESCE",
+        "IFNULL"
+    ],
+    "forbiddenPatterns": [
+        "--",
+        "/*",
+        "*/",
+        "UNION",
+        "INFORMATION_SCHEMA",
+        "mysql.",
+        "sys."
+    ],
+    "maxJoinDepth": 4,
+    "roleMasks": {
+        "OwnerPortal": {
+            "denyColumns": [
+                "Tenants.Phone",
+                "Tenants.Email",
+                "Tenants.EmergencyContact"
+            ]
+        },
+        "TenantPortal": {
+            "denyColumns": [
+                "Owners.Phone",
+                "Owners.Email",
+                "Owners.Abn",
+                "OwnerStatements",
+                "OwnerStatementLines"
+            ],
+            "denyTables": [
+                "OwnerStatements",
+                "OwnerStatementLines"
+            ]
+        }
+    }
+}

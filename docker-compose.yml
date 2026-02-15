@@ -1,0 +1,102 @@
+version: '3.9'
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: nlp2sql-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass123
+      MYSQL_DATABASE: property_analytics
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_pass_secure
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass123"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    command: --mysql-native-password=ON
+    networks:
+      - nlp2sql-network
+
+  adminer:
+    image: adminer:4
+    container_name: nlp2sql-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - nlp2sql-network
+
+  agent:
+    build:
+      context: .
+      dockerfile: agents/Dockerfile
+    container_name: nlp2sql-agent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nlp2sql-network
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: nlp2sql-api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - ConnectionStrings__MySql=Server=mysql;Port=3306;Database=property_analytics;User ID=app_user;Password=app_pass_secure;AllowUserVariables=True;UseAffectedRows=False
+      - AgentService__BaseUrl=http://agent:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/query/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nlp2sql-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: nlp2sql-frontend
+    restart: unless-stopped
+    ports:
+      - "4200:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - nlp2sql-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  nlp2sql-network:
+    driver: bridge

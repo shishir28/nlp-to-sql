@@ -1,0 +1,279 @@
+from typing import Annotated, TypedDict
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+
+
+class AgentState(TypedDict):
+    """State passed between graph nodes"""
+    question: str
+    customer_id: str
+    user_id: str
+    role: str
+    tenant_column: str
+    default_limit: int
+    allowed_tables: list[str]
+    
+    # Intermediate state
+    detected_domain: str
+    scoped_tables: list[str]
+    plan: dict
+    sql_candidate: str
+    confidence: float
+    reasoning: str
+    needs_clarification: bool
+    clarification_prompt: str
+
+
+def route_domain(state: AgentState) -> AgentState:
+    """Route question to domain based on keywords"""
+    question_lower = state["question"].lower()
+    
+    # Keyword-based domain detection
+    if any(word in question_lower for word in ["arrears", "overdue", "owing", "unpaid"]):
+        domain = "arrears"
+    elif any(word in question_lower for word in ["tenancy", "tenancies", "lease", "tenant"]):
+        domain = "tenancy"
+    elif any(word in question_lower for word in ["maintenance", "repair", "job", "vendor"]):
+        domain = "maintenance"
+    elif any(word in question_lower for word in ["inspection", "compliance", "scheduled"]):
+        domain = "inspection"
+    elif any(word in question_lower for word in ["owner", "statement", "distribution"]):
+        domain = "owner_statement"
+    else:
+        domain = "general"
+    
+    state["detected_domain"] = domain
+    state["reasoning"] = f"Detected domain: {domain}"
+    return state
+
+
+def schema_context(state: AgentState) -> AgentState:
+    """Scope tables based on detected domain"""
+    domain = state["detected_domain"]
+    all_tables = state["allowed_tables"]
+    
+    # Domain-specific table scoping
+    domain_table_map = {
+        "arrears": ["Tenancies", "RentLedgerEntries", "Properties", "Tenants"],
+        "tenancy": ["Tenancies", "Properties", "Tenants", "LeaseDocuments"],
+        "maintenance": ["MaintenanceJobs", "Properties", "Vendors"],
+        "inspection": ["Inspections", "Properties", "Tenancies"],
+        "owner_statement": ["OwnerStatements", "Properties", "PropertyOwners", "Owners"],
+        "general": all_tables[:6]  # limiting to first 6 tables for general queries
+    }
+    
+    scoped = domain_table_map.get(domain, all_tables)
+    state["scoped_tables"] = [t for t in scoped if t in all_tables]
+    state["reasoning"] += f" | Scoped to tables: {', '.join(state['scoped_tables'])}"
+    return state
+
+
+def planner(state: AgentState) -> AgentState:
+    """Build structured plan for SQL generation"""
+    question = state["question"]
+    domain = state["detected_domain"]
+    
+    # Simple plan structure
+    plan = {
+        "objective": question,
+        "domain": domain,
+        "tables": state["scoped_tables"],
+        "filters": [],
+        "aggregations": [],
+        "requested_limit": state["default_limit"],
+        "temporal_filter": None  # "past", "upcoming", or None
+    }
+    
+    # Extract specific limit from query
+    question_lower = question.lower()
+    words = question_lower.split()
+    for i, word in enumerate(words):
+        # Check for patterns like "top 5", "5 top", "first 10", "list 5", "show 3", "show me 3"
+        if word.isdigit() and int(word) > 0:
+            limit = int(word)
+            # Check context before the number
+            if i > 0:
+                prev_word = words[i-1]
+                # Also check for "show me 5" pattern (i > 1)
+                if prev_word in ["top", "first", "list", "show"]:
+                    plan["requested_limit"] = limit
+                    break
+                elif i > 1 and prev_word == "me" and words[i-2] == "show":
+                    plan["requested_limit"] = limit
+                    break
+            # Check context after the number
+            if i < len(words) - 1 and words[i+1] in ["top", "first"]:
+                plan["requested_limit"] = limit
+                break
+    
+    # Temporal filter extraction for inspections
+    if "past" in question_lower or "previous" in question_lower or "completed" in question_lower or "historical" in question_lower:
+        plan["temporal_filter"] = "past"
+    elif "upcoming" in question_lower or "future" in question_lower or "scheduled" in question_lower:
+        plan["temporal_filter"] = "upcoming"
+    
+    # Basic filter extraction
+    if "active" in question_lower:
+        plan["filters"].append("status = 'Active'")
+    if "next" in question_lower and "days" in question_lower:
+        # Extract number of days
+        for i, word in enumerate(words):
+            if word in ["next", "within"] and i + 1 < len(words):
+                try:
+                    days = int(''.join(filter(str.isdigit, words[i + 1])))
+                    plan["filters"].append(f"date_range_days={days}")
+                except ValueError:
+                    pass
+    
+    state["plan"] = plan
+    state["confidence"] = 0.7  # Medium confidence for template-based generation
+    state["reasoning"] += f" | Plan: {plan['objective']}"
+    return state
+
+
+def sql_generator(state: AgentState) -> AgentState:
+    """Generate SQL from plan using templates"""
+    domain = state["detected_domain"]
+    plan = state["plan"]
+    tenant_col = state["tenant_column"]
+    limit = plan["requested_limit"]
+    
+    # Template-based SQL generation (deterministic MVP)
+    sql_templates = {
+        "arrears": f"""SELECT 
+    t.TenancyId,
+    tn.FullName AS TenantName,
+    CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+    SUM(CASE WHEN rle.PaidDate IS NULL THEN rle.Amount ELSE 0 END) AS TotalArrears,
+    MAX(rle.DueDate) AS LatestDueDate
+FROM Tenancies t
+INNER JOIN Tenants tn ON t.TenantId = tn.TenantId
+INNER JOIN Properties p ON t.PropertyId = p.PropertyId
+INNER JOIN RentLedgerEntries rle ON t.TenancyId = rle.TenancyId
+WHERE t.StatusCode = 'ACTIVE' 
+  AND rle.PaidDate IS NULL
+  AND rle.DueDate < CURDATE()
+GROUP BY t.TenancyId, tn.FullName, p.AddressLine1, p.Suburb
+HAVING TotalArrears > 0
+ORDER BY TotalArrears DESC
+LIMIT {limit}""",
+        
+        "tenancy": f"""SELECT 
+    t.TenancyId,
+    tn.FullName AS TenantName,
+    CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+    t.StartDate,
+    t.LeaseEndDate,
+    t.RentAmount,
+    t.RentFrequency,
+    DATEDIFF(t.LeaseEndDate, CURDATE()) AS DaysUntilExpiry
+FROM Tenancies t
+INNER JOIN Tenants tn ON t.TenantId = tn.TenantId
+INNER JOIN Properties p ON t.PropertyId = p.PropertyId
+WHERE t.StatusCode = 'ACTIVE'
+  AND t.LeaseEndDate IS NOT NULL
+  AND t.LeaseEndDate BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 60 DAY)
+ORDER BY t.LeaseEndDate ASC
+LIMIT {limit}""",
+        
+        "maintenance": f"""SELECT 
+    m.MaintenanceJobId,
+    m.Summary,
+    CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+    m.StatusCode,
+    m.OpenedAtUtc,
+    DATEDIFF(NOW(), m.OpenedAtUtc) AS DaysOpen,
+    m.EstimatedCost
+FROM MaintenanceJobs m
+INNER JOIN Properties p ON m.PropertyId = p.PropertyId
+WHERE m.StatusCode IN ('OPEN', 'IN_PROGRESS')
+ORDER BY m.OpenedAtUtc ASC
+LIMIT {limit}""",
+        
+        "inspection": f"""SELECT 
+    i.InspectionId,
+    CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+    i.InspectionType,
+    i.ScheduledDate,
+    i.ComplianceStatus
+FROM Inspections i
+INNER JOIN Properties p ON i.PropertyId = p.PropertyId
+WHERE {"i.ScheduledDate < CURDATE()" if plan.get("temporal_filter") == "past" else "i.ScheduledDate >= CURDATE()"}
+ORDER BY i.ScheduledDate {"DESC" if plan.get("temporal_filter") == "past" else "ASC"}
+LIMIT {limit}""",
+        
+        "owner_statement": f"""SELECT 
+    os.OwnerStatementId,
+    o.FullName AS OwnerName,
+    os.PeriodStart,
+    os.PeriodEnd,
+    os.GrossIncome,
+    os.Expenses,
+    os.ManagementFees,
+    os.NetPayout
+FROM OwnerStatements os
+INNER JOIN Owners o ON os.OwnerId = o.OwnerId
+ORDER BY os.PeriodEnd DESC
+LIMIT {limit}"""
+    }
+    
+    sql = sql_templates.get(domain, 
+        f"SELECT * FROM {state['scoped_tables'][0] if state['scoped_tables'] else 'Properties'} LIMIT {limit}")
+    
+    # Note: Tenant predicate will be injected by .NET firewall
+    # LIMIT is added here based on query analysis
+    
+    state["sql_candidate"] = sql.strip()
+    state["needs_clarification"] = False
+    state["reasoning"] += f" | Generated SQL template for {domain}"
+    return state
+
+
+def clarification_node(state: AgentState) -> AgentState:
+    """Handle cases needing clarification"""
+    state["needs_clarification"] = True
+    state["clarification_prompt"] = (
+        f"I need more information to answer '{state['question']}'. "
+        "Could you please specify which properties, dates, or statuses you're interested in?"
+    )
+    state["sql_candidate"] = ""
+    state["confidence"] = 0.3
+    return state
+
+
+def should_clarify(state: AgentState) -> str:
+    """Route to clarification if confidence too low"""
+    return "clarify" if state.get("confidence", 0) < 0.55 else "generate"
+
+
+# Build the graph
+def create_nl2sql_graph():
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+    workflow.add_node("route", route_domain)
+    workflow.add_node("schema", schema_context)
+    workflow.add_node("planner", planner)
+    workflow.add_node("generate", sql_generator)
+    workflow.add_node("clarify", clarification_node)
+    
+    # Define edges
+    workflow.set_entry_point("route")
+    workflow.add_edge("route", "schema")
+    workflow.add_edge("schema", "planner")
+    workflow.add_conditional_edges(
+        "planner",
+        should_clarify,
+        {
+            "generate": "generate",
+            "clarify": "clarify"
+        }
+    )
+    workflow.add_edge("generate", END)
+    workflow.add_edge("clarify", END)
+    
+    return workflow.compile()
+
+
+# Global graph instance
+nl2sql_graph = create_nl2sql_graph()
