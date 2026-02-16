@@ -1,0 +1,48 @@
+version: "v1"
+author: "NL2SQL Team"
+created: "2024-01-15"
+description: "SQL validator user prompt template"
+
+template: |
+  **Original question**: "{{ question }}"
+  
+  **Generated SQL**:
+  ```sql
+  {{ sql_candidate }}
+  ```
+  
+  **Available schema**:
+  ```sql
+  {{ schema_description }}
+  ```
+  
+  **Validation requirements**:
+  - Verify tenant isolation: Must filter by {{ tenant_column }} = ?
+  - Check all tables exist: {{ scoped_tables | join(', ') }}
+  - Verify MySQL 8.4 compatibility
+  - Ensure no security issues
+  
+  **Context**:
+  - Domain: {{ detected_domain }}
+  - User role: {{ role }}
+  - Expected result size: ~{{ default_limit }} rows
+  
+  Validate this SQL. If you find fixable issues, AUTO-CORRECT them in revised_sql.
+  Only request clarification if the QUESTION itself is ambiguous.
+  
+  Return JSON with all validation fields.
+
+variables:
+  - question
+  - sql_candidate
+  - schema_description
+  - tenant_column
+  - scoped_tables
+  - detected_domain
+  - role
+  - default_limit
+
+rendering:
+  engine: "jinja2"
+  strip_whitespace: true
+  autoescape: false

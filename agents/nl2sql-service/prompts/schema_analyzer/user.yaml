@@ -1,0 +1,41 @@
+version: "v1"
+author: "NL2SQL Team"
+created: "2024-01-15"
+description: "Schema analyzer user prompt template"
+
+template: |
+  **Original question**: "{{ question }}"
+  
+  **Classified domain**: {{ domain }} (confidence: {{ domain_confidence }})
+  
+  **Relevant tables**: {{ scoped_tables | join(', ') }}
+  
+  **Available schema**:
+  ```sql
+  {{ schema_details }}
+  ```
+  
+  **Tenant filtering**: All queries must include WHERE {{ tenant_column }} = '{{ customer_id }}'
+  
+  {% if extracted_filters %}
+  **Extracted filters from question**:
+  {% for column, filter_info in extracted_filters.items() %}
+  - {{ column }} {{ filter_info.operator }} {{ filter_info.value }}
+  {% endfor %}
+  {% endif %}
+  
+  Analyze this schema and provide a detailed query plan. Return JSON only.
+
+variables:
+  - question
+  - domain
+  - domain_confidence
+  - scoped_tables
+  - schema_details
+  - tenant_column
+  - customer_id
+  - extracted_filters
+
+rendering:
+  engine: "jinja2"
+  strip_whitespace: true

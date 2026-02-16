@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY agents/nl2sql-service/app ./app
 COPY agents/nl2sql-service/domain-mapping.json ./domain-mapping.json
+# Phase 3: Copy YAML prompt templates
+COPY agents/nl2sql-service/prompts ./prompts
 
 # Expose port
 EXPOSE 8000

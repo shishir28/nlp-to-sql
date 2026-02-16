@@ -1,12 +1,15 @@
 """
 Multi-agent LLM-powered SQL generation using LangGraph
 Phase 2: Includes caching, retry logic, filter extraction, and metrics
+Phase 3: Pydantic models for type safety and validation
 """
-from typing import TypedDict, Annotated, Optional, Dict, Any, List
+from typing import Annotated, Optional, Dict, Any, List, TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.llm import get_llm_instance
 from app.schema_introspection import get_introspector
+from app.state_models import LLMAgentState, Domain, QueryComplexity
+from app.prompt_library import PromptLibrary
 import json
 import logging
 import re
@@ -23,6 +26,9 @@ from tenacity import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Initialize prompt library for Phase 3
+prompt_library = PromptLibrary()
 
 # ============================================================================
 # PHASE 2: CACHING, RETRY LOGIC, FILTER EXTRACTION & METRICS
@@ -460,20 +466,26 @@ def safe_parse_json(content: str, default: Optional[Dict[str, Any]] = None) -> D
             return default
 
 
-class LLMAgentState(TypedDict):
-    """State passed between LLM-powered agents"""
+# ============================================================================
+# STATE DEFINITION (Phase 3: TypedDict for LangGraph, Pydantic for validation)
+# ============================================================================
+# LangGraph requires TypedDict or similar for state schema
+# We use Pydantic LLMAgentState only for initial validation in main.py
+class LLMAgentStateDict(TypedDict, total=False):
+    """State dict passed between agents in LangGraph"""
+    # Required fields
     question: str
     customer_id: str
     user_id: str
     role: str
     tenant_column: str
     default_limit: int
-    allowed_tables: list[str]
+    allowed_tables: List[str]
     
     # Agent outputs
     detected_domain: str
     domain_confidence: float
-    scoped_tables: list[str]
+    scoped_tables: List[str]
     schema_description: str
     query_plan: str
     sql_candidate: str
@@ -483,17 +495,23 @@ class LLMAgentState(TypedDict):
     needs_clarification: bool
     clarification_prompt: str
     
-    # Phase 2: Performance tracking and filter extraction
-    metrics_collector: MetricsCollector
+    # Phase 2: Performance tracking
+    metrics_collector: Any
     extracted_limit: int
     extracted_filters: Dict[str, Any]
+    
+    # Phase 3: Routing & optimization
+    query_complexity: str
+    agent_route: str
+    prompt_version: str
 
 
-def domain_classifier_agent(state: LLMAgentState) -> LLMAgentState:
+def domain_classifier_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Agent 1: Domain Classification
     Uses LLM to classify the question into a domain and identify relevant tables.
     Phase 2: Includes metrics tracking and retry logic
+    Phase 3: State validated by Pydantic in main.py, received as dict from LangGraph
     """
     # Phase 2: Start metrics tracking
     metric = state.get('metrics_collector').record('domain_classifier') if state.get('metrics_collector') else None
@@ -579,11 +597,12 @@ Classify the domain and identify relevant tables."""
     return state
 
 
-def schema_analyzer_agent(state: LLMAgentState) -> LLMAgentState:
+def schema_analyzer_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Agent 2: Schema Analysis & Query Planning
     Uses LLM to understand the schema and create a detailed query plan.
     Phase 2: Includes metrics tracking and retry logic
+    Phase 3: State validated by Pydantic in main.py, received as dict from LangGraph
     """
     # Phase 2: Start metrics tracking
     metric = state.get('metrics_collector').record('schema_analyzer') if state.get('metrics_collector') else None
@@ -665,11 +684,12 @@ Create a query plan."""
     return state
 
 
-def sql_generator_agent(state: LLMAgentState) -> LLMAgentState:
+def sql_generator_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Agent 3: SQL Generation
     Uses LLM to generate SQL based on the query plan and schema.
     Phase 2: Includes metrics tracking, retry logic, and filter extraction
+    Phase 3: State validated by Pydantic in main.py, received as dict from LangGraph
     """
     # Phase 2: Start metrics tracking
     metric = state.get('metrics_collector').record('sql_generator') if state.get('metrics_collector') else None
@@ -770,11 +790,12 @@ Generate the SQL now using EXACT column names from the schema."""
     return state
 
 
-def sql_validator_agent(state: LLMAgentState) -> LLMAgentState:
+def sql_validator_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Agent 4: SQL Validation & Refinement
     Uses LLM to review and validate the generated SQL.
     Phase 2: Includes metrics tracking and retry logic
+    Phase 3: State validated by Pydantic in main.py, received as dict from LangGraph
     """
     # Phase 2: Start metrics tracking
     metric = state.get('metrics_collector').record('sql_validator') if state.get('metrics_collector') else None
@@ -789,30 +810,65 @@ def sql_validator_agent(state: LLMAgentState) -> LLMAgentState:
         state["needs_clarification"] = False
         return state
     
-    system_prompt = """You are a SQL validation expert.
+    # Phase 3: Load prompts from YAML templates
+    try:
+        system_prompt = prompt_library.render_prompt(
+            'sql_validator',
+            'system',
+            tenant_column=state.get('tenant_column', 'CustomerId'),
+            mysql_version='8.4'
+        )
+        user_prompt = prompt_library.render_prompt(
+            'sql_validator',
+            'user',
+            question=state['question'],
+            sql_candidate=state['sql_candidate'],
+            schema_description="All tables have CustomerId. Common JOINs use: table1.ForeignKeyId = table2.PrimaryKeyId AND table1.CustomerId = table2.CustomerId",
+            tenant_column=state.get('tenant_column', 'CustomerId'),
+            scoped_tables=state.get('scoped_tables', []),
+            detected_domain=state.get('detected_domain', 'unknown'),
+            role=state.get('role', 'user'),
+            default_limit=state.get('default_limit', 50)
+        )
+    except Exception as e:
+        logger.warning(f"[SQL Validator] Failed to load YAML prompts, using fallback: {e}")
+        # Fallback to hardcoded prompts if YAML loading fails
+        system_prompt = """You are a SQL validation and auto-correction expert for MySQL 8.4.
+Your goal is to FIX SQL issues automatically, NOT just flag them.
+
 Review the generated SQL for:
-1. Syntax correctness
-2. Logical correctness (does it answer the question?)
-3. Security issues (but remember tenant filtering is added separately)
-4. Performance concerns
-5. Edge cases
+1. **Syntax correctness** - Fix any syntax errors immediately
+2. **Missing JOINs** - If tables are referenced but not joined, add the proper JOINs
+3. **Logical correctness** - Does it answer the question?
+4. **Security** - Tenant filtering is added separately, don't worry about it
+5. **MySQL compatibility** - MySQL supports HAVING with column aliases, aggregate functions in HAVING, etc.
+
+**IMPORTANT RULES**:
+- If you find fixable SQL issues (missing JOINs, syntax errors), provide revised_sql with corrections
+- Only set is_valid=false if the QUESTION is ambiguous and cannot be answered
+- MySQL 8.4 supports: HAVING with aliases, CTEs, window functions, JSON functions
+- Confidence below 0.8 should trigger auto-correction, not clarification requests
 
 Respond in JSON format:
 {{
     "is_valid": true/false,
     "confidence": 0.95,
     "issues": ["issue1", "issue2"],
-    "suggestions": ["suggestion1"],
-    "revised_sql": "SQL if changes needed, or null"
-}}"""
-    
-    user_prompt = f"""Validate this SQL:
+    "fixes_applied": ["fix1", "fix2"],
+    "revised_sql": "CORRECTED SQL if any issues found, or null if perfect"
+}}
+
+If you provide revised_sql, the issues should be FIXED in that SQL."""
+        
+        user_prompt = f"""Validate and auto-correct this SQL if needed:
 
 Question: {state['question']}
 Generated SQL:
 {state['sql_candidate']}
 
-Is this SQL correct and safe?"""
+Schema context: All tables have CustomerId. Common JOINs use: table1.ForeignKeyId = table2.PrimaryKeyId AND table1.CustomerId = table2.CustomerId
+
+AUTO-FIX any issues and provide revised_sql."""
     
     try:
         logger.debug("[SQL Validator] Calling LLM for validation")
@@ -837,20 +893,31 @@ Is this SQL correct and safe?"""
                    f"confidence={state['confidence']:.2f}")
         
         # Use revised SQL if provided
+        fixes_applied = result.get("fixes_applied", [])
         if result.get("revised_sql"):
-            logger.info("[SQL Validator] Using revised SQL from validator")
+            logger.info(f"[SQL Validator] Auto-corrected SQL. Fixes: {', '.join(fixes_applied) if fixes_applied else 'general improvements'}")
             state["sql_candidate"] = result["revised_sql"]
-            state["reasoning"] += " | SQL revised by validator"
+            state["reasoning"] += " | SQL auto-corrected by validator"
+            # Boost confidence if auto-correction was successful
+            if state["confidence"] < 0.8:
+                state["confidence"] = 0.85
+                logger.info("[SQL Validator] Confidence boosted to 0.85 after auto-correction")
         
-        # Check if clarification needed
-        state["needs_clarification"] = not result.get("is_valid", True) or state["confidence"] < 0.6
+        # Only request clarification if question is truly ambiguous AND no fix was possible
+        # If revised_sql was provided, trust the auto-correction
+        has_auto_fix = result.get("revised_sql") is not None
+        is_question_ambiguous = not result.get("is_valid", True)
+        
+        # Request clarification only when question is ambiguous and we couldn't auto-fix
+        state["needs_clarification"] = is_question_ambiguous and not has_auto_fix and state["confidence"] < 0.6
         
         if state["needs_clarification"]:
             issues = result.get("issues", [])
-            state["clarification_prompt"] = f"Issues with query: {', '.join(issues)}"
+            state["clarification_prompt"] = f"Question is ambiguous: {', '.join(issues)}"
             logger.warning(f"[SQL Validator] Clarification needed: {state['clarification_prompt']}")
         else:
-            logger.info("[SQL Validator] SQL validation passed")
+            status = "auto-corrected and validated" if has_auto_fix else "validated"
+            logger.info(f"[SQL Validator] SQL {status} - confidence {state['confidence']:.2f}")
         
         # Phase 2: Complete metrics on success
         if metric:
@@ -885,7 +952,8 @@ def clarification_agent(state: LLMAgentState) -> LLMAgentState:
 # Build the multi-agent graph
 def create_llm_agent_graph():
     logger.info("[Graph] Initializing LLM multi-agent graph")
-    workflow = StateGraph(LLMAgentState)
+    # Phase 3: Use TypedDict for LangGraph, Pydantic LLMAgentState used only for validation in main.py
+    workflow = StateGraph(LLMAgentStateDict)
     
     # Add agent nodes
     workflow.add_node("domain_classifier", domain_classifier_agent)

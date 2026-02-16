@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.models import Nl2SqlGenerateRequest, Nl2SqlGenerateResponse
 from app.graph import nl2sql_graph  # Template-based
 from app.llm_graph import llm_nl2sql_graph, get_query_cache, MetricsCollector, extract_limit_from_question, extract_numeric_filters  # LLM-powered
+from app.state_models import LLMAgentState  # Phase 3: Pydantic state model
 from app.config import settings
 import logging
 import os
@@ -81,31 +82,41 @@ async def generate_sql(request: Nl2SqlGenerateRequest) -> Nl2SqlGenerateResponse
         # Phase 2: Initialize metrics collector
         metrics = MetricsCollector() if USE_LLM else None
         
-        # Prepare initial state
-        initial_state = {
-            "question": request.question,
-            "customer_id": request.context.customer_id,
-            "user_id": request.context.user_id,
-            "role": request.context.role,
-            "tenant_column": request.constraints.tenant_column,
-            "default_limit": request.constraints.default_limit,
-            "allowed_tables": request.constraints.allowed_tables,
-            
-            # Initialize output fields
-            "detected_domain": "",
-            "scoped_tables": [],
-            "plan": {},
-            "sql_candidate": "",
-            "confidence": 0.0,
-            "reasoning": "",
-            "needs_clarification": False,
-            "clarification_prompt": "",
-            
-            # Phase 2: Performance and filter extraction
-            "metrics_collector": metrics,
-            "extracted_limit": extracted_limit,
-            "extracted_filters": extracted_filters
-        }
+        # Phase 3: Create Pydantic state with validation
+        if USE_LLM:
+            initial_state_model = LLMAgentState(
+                question=request.question,
+                customer_id=request.context.customer_id,
+                user_id=request.context.user_id,
+                role=request.context.role,
+                tenant_column=request.constraints.tenant_column,
+                default_limit=request.constraints.default_limit,
+                allowed_tables=request.constraints.allowed_tables,
+                metrics_collector=metrics,
+                extracted_limit=extracted_limit,
+                extracted_filters=extracted_filters
+            )
+            # Convert to dict for LangGraph
+            initial_state = initial_state_model.model_dump()
+        else:
+            # Template mode: Use plain dict
+            initial_state = {
+                "question": request.question,
+                "customer_id": request.context.customer_id,
+                "user_id": request.context.user_id,
+                "role": request.context.role,
+                "tenant_column": request.constraints.tenant_column,
+                "default_limit": request.constraints.default_limit,
+                "allowed_tables": request.constraints.allowed_tables,
+                "detected_domain": "",
+                "scoped_tables": [],
+                "plan": {},
+                "sql_candidate": "",
+                "confidence": 0.0,
+                "reasoning": "",
+                "needs_clarification": False,
+                "clarification_prompt": ""
+            }
         
         # Run the graph (template-based or LLM-powered)
         result = active_graph.invoke(initial_state)

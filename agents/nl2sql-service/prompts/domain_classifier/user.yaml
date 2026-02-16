@@ -1,0 +1,24 @@
+version: "v1"
+author: "NL2SQL Team"
+created: "2024-01-15"
+description: "Domain classifier user prompt template"
+
+template: |
+  **Question to classify**: "{{ question }}"
+  
+  {% if allowed_tables %}
+  **Available tables for this user**: {{ allowed_tables | join(', ') }}
+  {% endif %}
+  
+  **User role**: {{ role }}
+  
+  Classify this question and identify relevant tables. Return JSON only.
+
+variables:
+  - question
+  - allowed_tables
+  - role
+
+rendering:
+  engine: "jinja2"
+  strip_whitespace: true

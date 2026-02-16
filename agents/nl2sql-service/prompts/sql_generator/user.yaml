@@ -1,0 +1,47 @@
+version: "v1"
+author: "NL2SQL Team"
+created: "2024-01-15"
+description: "SQL generator user prompt template"
+
+template: |
+  **Original question**: "{{ question }}"
+  
+  **Schema analysis result**:
+  {{ schema_description }}
+  
+  **Query plan**:
+  ```json
+  {{ query_plan | tojson(indent=2) }}
+  ```
+  
+  **Mandatory filters**:
+  - {{ tenant_column }} = ? (parameter for '{{ customer_id }}')
+  {% if extracted_filters %}
+  {% for column, filter_info in extracted_filters.items() %}
+  - {{ column }} {{ filter_info.operator }} {{ filter_info.value }} (extracted from question)
+  {% endfor %}
+  {% endif %}
+  
+  **Result limit**: {% if extracted_limit %}{{ extracted_limit }}{% else %}{{ default_limit }}{% endif %}
+  
+  **User role**: {{ role }} (ensure appropriate data access)
+  
+  Generate the complete SQL query. Use `?` as placeholder for the tenant_column value.
+  
+  Return JSON with: sql, confidence, reasoning, estimated_rows, parameters
+
+variables:
+  - question
+  - schema_description
+  - query_plan
+  - tenant_column
+  - customer_id
+  - extracted_filters
+  - extracted_limit
+  - default_limit
+  - role
+
+rendering:
+  engine: "jinja2"
+  strip_whitespace: true
+  autoescape: false
