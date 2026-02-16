@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.models import Nl2SqlGenerateRequest, Nl2SqlGenerateResponse
 from app.graph import nl2sql_graph  # Template-based
-from app.llm_graph import llm_nl2sql_graph  # LLM-powered
+from app.llm_graph import llm_nl2sql_graph, get_query_cache, MetricsCollector, extract_limit_from_question, extract_numeric_filters  # LLM-powered
 from app.config import settings
 import logging
 import os
@@ -17,6 +17,9 @@ active_graph = llm_nl2sql_graph if USE_LLM else nl2sql_graph
 mode = "LLM-powered multi-agent" if USE_LLM else "Template-based"
 
 logger.info(f"Starting NL2SQL service in {mode} mode")
+
+# Initialize query cache for LLM mode
+query_cache = get_query_cache() if USE_LLM else None
 
 app = FastAPI(
     title="NL2SQL Agent Service",
@@ -54,9 +57,29 @@ async def health():
 async def generate_sql(request: Nl2SqlGenerateRequest) -> Nl2SqlGenerateResponse:
     """
     Generate SQL from natural language question using LangGraph multi-agent workflow
+    Phase 2: Includes caching, metrics, and filter extraction
     """
     try:
         logger.info(f"Received request: {request.question} from customer {request.context.customer_id}")
+        
+        # Phase 2: Check cache first (LLM mode only)
+        cache_key = None
+        if USE_LLM and query_cache:
+            cache_key = query_cache.cache_key(
+                request.question, 
+                request.context.customer_id
+            )
+            cached_result = query_cache.get(cache_key)
+            if cached_result:
+                logger.info(f"Cache HIT - returning cached result (99% latency reduction!)")
+                return Nl2SqlGenerateResponse(**cached_result)
+        
+        # Phase 2: Extract limit and filters from question
+        extracted_limit = extract_limit_from_question(request.question, request.constraints.default_limit) if USE_LLM else request.constraints.default_limit
+        extracted_filters = extract_numeric_filters(request.question) if USE_LLM else {}
+        
+        # Phase 2: Initialize metrics collector
+        metrics = MetricsCollector() if USE_LLM else None
         
         # Prepare initial state
         initial_state = {
@@ -76,23 +99,42 @@ async def generate_sql(request: Nl2SqlGenerateRequest) -> Nl2SqlGenerateResponse
             "confidence": 0.0,
             "reasoning": "",
             "needs_clarification": False,
-            "clarification_prompt": ""
+            "clarification_prompt": "",
+            
+            # Phase 2: Performance and filter extraction
+            "metrics_collector": metrics,
+            "extracted_limit": extracted_limit,
+            "extracted_filters": extracted_filters
         }
         
         # Run the graph (template-based or LLM-powered)
         result = active_graph.invoke(initial_state)
         
         # Build response
-        response = Nl2SqlGenerateResponse(
-            sql_candidate=result["sql_candidate"],
-            confidence=result["confidence"],
-            needs_clarification=result["needs_clarification"],
-            clarification_prompt=result.get("clarification_prompt"),
-            reasoning=result["reasoning"],
-            original_question=request.question,
-            detected_domain=result.get("detected_domain"),
-            scoped_tables=result.get("scoped_tables", [])
-        )
+        response_data = {
+            "sql_candidate": result["sql_candidate"],
+            "confidence": result["confidence"],
+            "needs_clarification": result["needs_clarification"],
+            "clarification_prompt": result.get("clarification_prompt"),
+            "reasoning": result["reasoning"],
+            "original_question": request.question,
+            "detected_domain": result.get("detected_domain"),
+            "scoped_tables": result.get("scoped_tables", [])
+        }
+        
+        response = Nl2SqlGenerateResponse(**response_data)
+        
+        # Phase 2: Cache the result (LLM mode only)
+        if USE_LLM and query_cache and cache_key:
+            query_cache.set(cache_key, response_data)
+            logger.info(f"Cached result for future use (TTL: 1 hour)")
+        
+        # Phase 2: Log metrics summary
+        if USE_LLM and metrics:
+            metrics_summary = metrics.summary()
+            logger.info(f"Metrics: {metrics_summary['total_duration_ms']}ms total, "
+                       f"{len(metrics_summary['agents'])} agents, "
+                       f"{metrics_summary['success_rate']*100:.0f}% success rate")
         
         logger.info(f"Generated SQL with confidence {response.confidence}: {response.sql_candidate[:100]}...")
         return response

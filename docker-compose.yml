@@ -35,6 +35,21 @@ services:
     networks:
       - nlp2sql-network
 
+  redis:
+    image: redis:7-alpine
+    container_name: nlp2sql-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nlp2sql-network
+
   agent:
     build:
       context: .
@@ -47,6 +62,10 @@ services:
       - agents/nl2sql-service/.env
     environment:
       - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

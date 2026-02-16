@@ -1,7 +1,8 @@
 """
 Multi-agent LLM-powered SQL generation using LangGraph
+Phase 2: Includes caching, retry logic, filter extraction, and metrics
 """
-from typing import TypedDict, Annotated, Optional, Dict, Any
+from typing import TypedDict, Annotated, Optional, Dict, Any, List
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.llm import get_llm_instance
@@ -9,8 +10,332 @@ from app.schema_introspection import get_introspector
 import json
 import logging
 import re
+import hashlib
+import time
+from dataclasses import dataclass, field
+from functools import wraps
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# PHASE 2: CACHING, RETRY LOGIC, FILTER EXTRACTION & METRICS
+# ============================================================================
+
+class QueryCache:
+    """
+    Multi-tier caching for SQL query results.
+    Uses Redis if available, falls back to in-memory cache.
+    """
+    def __init__(self, ttl: int = 3600):
+        self.ttl = ttl
+        self.local_cache = {}  # In-memory fallback
+        self.redis = None
+        
+        # Try to connect to Redis
+        try:
+            import redis
+            redis_url = "redis://redis:6379"  # Docker service name
+            self.redis = redis.from_url(redis_url, decode_responses=True)
+            self.redis.ping()
+            logger.info(f"QueryCache: Connected to Redis at {redis_url}")
+        except Exception as e:
+            logger.warning(f"QueryCache: Redis not available, using in-memory cache only: {e}")
+    
+    def cache_key(self, question: str, customer_id: int, schema_version: str = "v1") -> str:
+        """Generate cache key from query parameters"""
+        key_data = f"{question.lower().strip()}:{customer_id}:{schema_version}"
+        return f"nl2sql:{hashlib.sha256(key_data.encode()).hexdigest()}"
+    
+    def get(self, key: str) -> Optional[Dict]:
+        """Get cached result from Redis or local cache"""
+        # Try Redis first
+        if self.redis:
+            try:
+                data = self.redis.get(key)
+                if data:
+                    logger.info(f"Cache HIT (Redis): {key[:16]}...")
+                    return json.loads(data)
+            except Exception as e:
+                logger.warning(f"Redis get error: {e}, falling back to local cache")
+        
+        # Fall back to local cache
+        if key in self.local_cache:
+            entry = self.local_cache[key]
+            if time.time() - entry['timestamp'] < self.ttl:
+                logger.info(f"Cache HIT (local): {key[:16]}...")
+                return entry['data']
+            else:
+                del self.local_cache[key]
+        
+        logger.info(f"Cache MISS: {key[:16]}...")
+        return None
+    
+    def set(self, key: str, value: Dict):
+        """Store result in Redis and local cache"""
+        # Store in Redis
+        if self.redis:
+            try:
+                self.redis.setex(key, self.ttl, json.dumps(value))
+                logger.debug(f"Cached to Redis: {key[:16]}...")
+            except Exception as e:
+                logger.warning(f"Redis set error: {e}")
+        
+        # Always store in local cache as backup
+        self.local_cache[key] = {
+            'data': value,
+            'timestamp': time.time()
+        }
+        logger.debug(f"Cached locally: {key[:16]}...")
+
+
+@dataclass
+class AgentMetrics:
+    """Performance metrics for a single agent execution"""
+    agent_name: str
+    start_time: float = field(default_factory=time.time)
+    end_time: float = 0
+    duration_ms: float = 0
+    success: bool = True
+    error_message: str = ""
+    retry_count: int = 0
+    
+    def complete(self, success: bool = True, error: str = "", retry_count: int = 0):
+        self.end_time = time.time()
+        self.duration_ms = round((self.end_time - self.start_time) * 1000, 2)
+        self.success = success
+        self.error_message = error
+        self.retry_count = retry_count
+
+
+class MetricsCollector:
+    """Collect and aggregate metrics across all agents"""
+    def __init__(self):
+        self.metrics: List[AgentMetrics] = []
+        self.start_time = time.time()
+        self.cache_hit = False
+    
+    def record(self, agent_name: str) -> AgentMetrics:
+        metric = AgentMetrics(agent_name=agent_name)
+        self.metrics.append(metric)
+        return metric
+    
+    def summary(self) -> Dict:
+        total_duration = round((time.time() - self.start_time) * 1000, 2)
+        return {
+            "total_duration_ms": total_duration,
+            "cache_hit": self.cache_hit,
+            "agents": [
+                {
+                    "name": m.agent_name,
+                    "duration_ms": m.duration_ms,
+                    "success": m.success,
+                    "error": m.error_message,
+                    "retry_count": m.retry_count
+                }
+                for m in self.metrics
+            ],
+            "success_rate": round(sum(1 for m in self.metrics if m.success) / len(self.metrics), 2) if self.metrics else 1.0
+        }
+
+
+def extract_limit_from_question(question: str, default: int = 10) -> int:
+    """
+    Extract LIMIT value from natural language question.
+    
+    Examples:
+        "show top 5" → 5
+        "give me three inspections" → 3
+        "list first 10" → 10
+        "all tenancies" → 100
+    """
+    question_lower = question.lower()
+    
+    # Pattern 1: "top N", "first N", "last N"
+    match = re.search(r'\b(?:top|first|last)\s+(\d+)\b', question_lower)
+    if match:
+        limit = int(match.group(1))
+        logger.info(f"Extracted LIMIT {limit} from pattern 'top/first/last N'")
+        return limit
+    
+    # Pattern 2: Explicit numbers with context
+    match = re.search(r'\b(\d+)\s+(?:most|recent|latest|oldest|properties|tenancies|inspections|jobs)\b', question_lower)
+    if match:
+        limit = int(match.group(1))
+        logger.info(f"Extracted LIMIT {limit} from pattern 'N most/recent/latest'")
+        return limit
+    
+    # Pattern 3: Text numbers
+    text_numbers = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        "dozen": 12, "twenty": 20, "fifty": 50
+    }
+    
+    for word, num in text_numbers.items():
+        pattern = f"\\b{word}\\s+(?:most|recent|latest|oldest|properties|tenancies|inspections|jobs)\\b"
+        if re.search(pattern, question_lower):
+            logger.info(f"Extracted LIMIT {num} from text number '{word}'")
+            return num
+    
+    # Pattern 4: "all" or "everything" → use higher limit
+    if re.search(r'\b(all|every|entire)\b', question_lower):
+        logger.info("Extracted LIMIT 100 from 'all/every/entire'")
+        return 100
+    
+    logger.info(f"No LIMIT found, using default: {default}")
+    return default
+
+
+def extract_numeric_filters(question: str) -> Dict[str, Any]:
+    """
+    Extract numeric comparison filters from question.
+    
+    Returns dict of filters: {"RentAmount": {"lt": 400}, "Bedrooms": {"gte": 3}}
+    """
+    filters = {}
+    question_lower = question.lower()
+    
+    # Map common field aliases to actual column names
+    field_mapping = {
+        'rent': 'RentAmount',
+        'price': 'RentAmount',
+        'cost': 'EstimatedCost',
+        'bedrooms': 'Bedrooms',
+        'beds': 'Bedrooms',
+        'bathrooms': 'Bathrooms',
+        'baths': 'Bathrooms',
+        'parking': 'Parking',
+        'spaces': 'Parking',
+        'arrears': 'BalanceDelta',
+        'balance': 'BalanceDelta',
+    }
+    
+    # Patterns for different operators (order matters - check specific before general)
+    patterns = {
+        'between': [
+            r'(\w+)\s+between\s+(\d+(?:\.\d+)?)\s+and\s+(\d+(?:\.\d+)?)',
+            r'(\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)\s+(\w+)',
+        ],
+        'lte': [
+            r'(\w+)\s+(?:at most|up to|max|maximum)\s+(\d+(?:\.\d+)?)',
+            r'(?:at most|up to|max|maximum)\s+(\d+(?:\.\d+)?)\s+(\w+)',
+        ],
+        'gte': [
+            r'(\w+)\s+(?:at least|minimum|min)\s+(\d+(?:\.\d+)?)',
+            r'(?:at least|minimum|min)\s+(\d+(?:\.\d+)?)\s+(\w+)',
+        ],
+        'lt': [
+            r'(\w+)\s+(?:less than|under|below|<)\s+(\d+(?:\.\d+)?)',
+            r'(?:less than|under|below)\s+(\d+(?:\.\d+)?)\s+(\w+)',
+        ],
+        'gt': [
+            r'(\w+)\s+(?:greater than|over|above|more than|>)\s+(\d+(?:\.\d+)?)',
+            r'(?:greater than|over|above|more than)\s+(\d+(?:\.\d+)?)\s+(\w+)',
+        ],
+        'eq': [
+            r'(\w+)\s+(?:equals|is|=)\s+(\d+(?:\.\d+)?)',
+            r'exactly\s+(\d+(?:\.\d+)?)\s+(\w+)',
+        ],
+    }
+    
+    for operator, pattern_list in patterns.items():
+        for pattern in pattern_list:
+            matches = re.finditer(pattern, question_lower)
+            for match in matches:
+                groups = match.groups()
+                
+                if operator == 'between':
+                    if len(groups) == 3:
+                        if groups[0].replace('.', '').isdigit():
+                            # Pattern: "500 to 1000 rent"
+                            val1, val2, field = groups
+                        else:
+                            # Pattern: "rent between 500 and 1000"
+                            field, val1, val2 = groups
+                        field = field_mapping.get(field, field)
+                        filters[field] = {'between': [float(val1), float(val2)]}
+                        logger.info(f"Extracted filter: {field} BETWEEN {val1} AND {val2}")
+                else:
+                    # Determine if first group is value or field
+                    if groups[0].replace('.', '').replace('-', '').isdigit():
+                        value, field = groups
+                    else:
+                        field, value = groups
+                    
+                    field = field_mapping.get(field, field)
+                    if field not in filters:
+                        filters[field] = {}
+                    filters[field][operator] = float(value)
+                    logger.info(f"Extracted filter: {field} {operator} {value}")
+    
+    return filters
+
+
+def create_retry_decorator():
+    """Create retry decorator for LLM calls with exponential backoff"""
+    return retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((Exception,)),  # Retry on any exception
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True
+    )
+
+
+# Create retry decorator instance
+_retry_llm_call = create_retry_decorator()
+
+
+def call_llm_with_retry(llm, messages: list, metric: Optional[AgentMetrics] = None):
+    """
+    Call LLM with automatic retry on failures.
+    Tracks retry count in metrics if provided.
+    """
+    retry_count = 0
+    
+    @_retry_llm_call
+    def _invoke():
+        nonlocal retry_count
+        response = llm.invoke(messages)
+        
+        # Validate response
+        if not response.content or len(response.content.strip()) < 10:
+            retry_count += 1
+            raise ValueError("Empty or invalid LLM response")
+        
+        return response
+    
+    try:
+        response = _invoke()
+        if metric:
+            metric.retry_count = retry_count
+        return response
+    except Exception as e:
+        if metric:
+            metric.retry_count = retry_count
+        raise
+
+
+# Global cache instance (initialized once)
+_query_cache = None
+
+def get_query_cache() -> QueryCache:
+    """Get or create global query cache instance"""
+    global _query_cache
+    if _query_cache is None:
+        _query_cache = QueryCache(ttl=3600)  # 1 hour TTL
+    return _query_cache
+
+# ============================================================================
+# END OF PHASE 2 ADDITIONS
+# ============================================================================
 
 # Database schema definition for accurate SQL generation
 SCHEMA_DEFINITION = """
@@ -157,13 +482,22 @@ class LLMAgentState(TypedDict):
     reasoning: str
     needs_clarification: bool
     clarification_prompt: str
+    
+    # Phase 2: Performance tracking and filter extraction
+    metrics_collector: MetricsCollector
+    extracted_limit: int
+    extracted_filters: Dict[str, Any]
 
 
 def domain_classifier_agent(state: LLMAgentState) -> LLMAgentState:
     """
     Agent 1: Domain Classification
     Uses LLM to classify the question into a domain and identify relevant tables.
+    Phase 2: Includes metrics tracking and retry logic
     """
+    # Phase 2: Start metrics tracking
+    metric = state.get('metrics_collector').record('domain_classifier') if state.get('metrics_collector') else None
+    
     logger.info(f"[Domain Classifier] Processing: {state['question']}")
     llm = get_llm_instance()
     
@@ -206,10 +540,11 @@ Classify the domain and identify relevant tables."""
     
     try:
         logger.debug(f"[Domain Classifier] Calling LLM with {len(state['allowed_tables'])} tables")
-        response = llm.invoke([
+        # Phase 2: Use retry wrapper for LLM call
+        response = call_llm_with_retry(llm, [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
-        ])
+        ], metric)
         
         result = safe_parse_json(response.content, default={
             "domain": "general",
@@ -226,12 +561,20 @@ Classify the domain and identify relevant tables."""
         logger.info(f"[Domain Classifier] LLM result: domain={state['detected_domain']}, "
                    f"confidence={state['domain_confidence']:.2f}, tables={state['scoped_tables']}")
         
+        # Phase 2: Complete metrics on success
+        if metric:
+            metric.complete(success=True)
+        
     except Exception as e:
         # Fallback on error
         logger.error(f"[Domain Classifier] LLM invocation failed: {str(e)}", exc_info=True)
         state["detected_domain"] = "general"
         state["domain_confidence"] = 0.5
         state["reasoning"] = f"LLM error, using fallback: {str(e)}"
+        
+        # Phase 2: Complete metrics on failure
+        if metric:
+            metric.complete(success=False, error=str(e))
     
     return state
 
@@ -240,7 +583,11 @@ def schema_analyzer_agent(state: LLMAgentState) -> LLMAgentState:
     """
     Agent 2: Schema Analysis & Query Planning
     Uses LLM to understand the schema and create a detailed query plan.
+    Phase 2: Includes metrics tracking and retry logic
     """
+    # Phase 2: Start metrics tracking
+    metric = state.get('metrics_collector').record('schema_analyzer') if state.get('metrics_collector') else None
+    
     logger.info(f"[Schema Analyzer] Planning for domain={state['detected_domain']}, tables={state['scoped_tables']}")
     llm = get_llm_instance()
     
@@ -279,10 +626,11 @@ Create a query plan."""
     
     try:
         logger.debug("[Schema Analyzer] Calling LLM for query planning")
-        response = llm.invoke([
+        # Phase 2: Use retry wrapper for LLM call
+        response = call_llm_with_retry(llm, [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
-        ])
+        ], metric)
         
         result = safe_parse_json(response.content, default={
             "query_plan": "Unable to create plan",
@@ -301,10 +649,18 @@ Create a query plan."""
         logger.info(f"[Schema Analyzer] Query plan created: {plan_preview}")
         logger.debug(f"[Schema Analyzer] Full plan: {state['schema_description']}")
         
+        # Phase 2: Complete metrics on success
+        if metric:
+            metric.complete(success=True)
+        
     except Exception as e:
         logger.error(f"[Schema Analyzer] LLM invocation failed: {str(e)}", exc_info=True)
         state["query_plan"] = "Error creating plan"
         state["reasoning"] += f" | Planning error: {str(e)}"
+        
+        # Phase 2: Complete metrics on failure
+        if metric:
+            metric.complete(success=False, error=str(e))
     
     return state
 
@@ -313,7 +669,11 @@ def sql_generator_agent(state: LLMAgentState) -> LLMAgentState:
     """
     Agent 3: SQL Generation
     Uses LLM to generate SQL based on the query plan and schema.
+    Phase 2: Includes metrics tracking, retry logic, and filter extraction
     """
+    # Phase 2: Start metrics tracking
+    metric = state.get('metrics_collector').record('sql_generator') if state.get('metrics_collector') else None
+    
     logger.info("[SQL Generator] Generating SQL from query plan")
     llm = get_llm_instance()
     
@@ -322,6 +682,23 @@ def sql_generator_agent(state: LLMAgentState) -> LLMAgentState:
         # Fallback to templates
         from app.graph import sql_generator as template_generator
         return template_generator(state)
+    
+    # Phase 2: Build filter guidance from extracted filters
+    filter_guidance = ""
+    extracted_filters = state.get('extracted_filters', {})
+    if extracted_filters:
+        filter_guidance = "\n\n**EXTRACTED FILTERS (MUST include in WHERE clause)**:\n"
+        for field, conditions in extracted_filters.items():
+            for op, val in conditions.items():
+                if op == 'between':
+                    filter_guidance += f"- {field} BETWEEN {val[0]} AND {val[1]}\n"
+                else:
+                    op_sql = {'lt': '<', 'lte': '<=', 'gt': '>', 'gte': '>=', 'eq': '='}[op]
+                    filter_guidance += f"- {field} {op_sql} {val}\n"
+        logger.info(f"[SQL Generator] Including extracted filters: {list(extracted_filters.keys())}")
+    
+    # Phase 2: Use extracted limit
+    limit_value = state.get('extracted_limit', state['default_limit'])
     
     system_prompt = f"""You are an expert SQL generator for MySQL 8.4.
 Generate clean, efficient SQL queries following these rules:
@@ -344,12 +721,12 @@ Question: {state['question']}
 Query Plan: {state['query_plan']}
 
 Relevant Tables: {', '.join(state['scoped_tables'])}
-Default LIMIT: {state['default_limit']}
+LIMIT to use: {limit_value}{filter_guidance}
 
 Generate the SQL now using EXACT column names from the schema."""
     
     try:
-        logger.debug("[SQL Generator] Calling LLM with temperature=0 for deterministic output")
+        logger.debug(f"[SQL Generator] Calling LLM with temperature=0, LIMIT={limit_value}, filters={list(extracted_filters.keys())}")
         
         # Override temperature to 0 for SQL generation (deterministic)
         from langchain_openai import ChatOpenAI
@@ -358,10 +735,11 @@ Generate the SQL now using EXACT column names from the schema."""
         else:
             sql_llm = llm
         
-        response = sql_llm.invoke([
+        # Phase 2: Use retry wrapper for LLM call
+        response = call_llm_with_retry(sql_llm, [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
-        ])
+        ], metric)
         
         sql = response.content.strip()
         logger.debug(f"[SQL Generator] Raw LLM response length: {len(sql)} chars")
@@ -376,10 +754,18 @@ Generate the SQL now using EXACT column names from the schema."""
         
         logger.info(f"[SQL Generator] Generated SQL ({len(sql)} chars): {sql[:100]}...")
         
+        # Phase 2: Complete metrics on success
+        if metric:
+            metric.complete(success=True)
+        
     except Exception as e:
         logger.error(f"[SQL Generator] LLM invocation failed: {str(e)}", exc_info=True)
         state["sql_candidate"] = f"-- Error generating SQL: {str(e)}"
         state["reasoning"] += f" | SQL generation error: {str(e)}"
+        
+        # Phase 2: Complete metrics on failure
+        if metric:
+            metric.complete(success=False, error=str(e))
     
     return state
 
@@ -388,7 +774,11 @@ def sql_validator_agent(state: LLMAgentState) -> LLMAgentState:
     """
     Agent 4: SQL Validation & Refinement
     Uses LLM to review and validate the generated SQL.
+    Phase 2: Includes metrics tracking and retry logic
     """
+    # Phase 2: Start metrics tracking
+    metric = state.get('metrics_collector').record('sql_validator') if state.get('metrics_collector') else None
+    
     logger.info("[SQL Validator] Validating generated SQL")
     llm = get_llm_instance()
     
@@ -426,10 +816,11 @@ Is this SQL correct and safe?"""
     
     try:
         logger.debug("[SQL Validator] Calling LLM for validation")
-        response = llm.invoke([
+        # Phase 2: Use retry wrapper for LLM call
+        response = call_llm_with_retry(llm, [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
-        ])
+        ], metric)
         
         result = safe_parse_json(response.content, default={
             "is_valid": True,
@@ -461,11 +852,19 @@ Is this SQL correct and safe?"""
         else:
             logger.info("[SQL Validator] SQL validation passed")
         
+        # Phase 2: Complete metrics on success
+        if metric:
+            metric.complete(success=True)
+        
     except Exception as e:
         logger.error(f"[SQL Validator] LLM invocation failed: {str(e)}", exc_info=True)
         state["validation_notes"] = f"Validation error: {str(e)}"
         state["confidence"] = 0.5
         state["needs_clarification"] = False
+        
+        # Phase 2: Complete metrics on failure
+        if metric:
+            metric.complete(success=False, error=str(e))
     
     return state
 
