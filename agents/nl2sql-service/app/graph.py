@@ -134,6 +134,24 @@ def planner(state: AgentState) -> AgentState:
                 except ValueError:
                     pass
     
+    # Extract numeric filters (e.g., "rent amount less than 400", "rent > 500")
+    import re
+    # Pattern: field name + operator + value
+    numeric_patterns = [
+        (r'rent\s*(?:amount)?\s*(?:less\s+than|below|under|<)\s*(\d+)', 'rent_lt'),
+        (r'rent\s*(?:amount)?\s*(?:greater\s+than|above|over|>)\s*(\d+)', 'rent_gt'),
+        (r'rent\s*(?:amount)?\s*(?:equals?|=|is)\s*(\d+)', 'rent_eq'),
+        (r'arrears?\s*(?:greater\s+than|above|over|>)\s*(\d+)', 'arrears_gt'),
+        (r'arrears?\s*(?:less\s+than|below|under|<)\s*(\d+)', 'arrears_lt'),
+    ]
+    
+    for pattern, filter_type in numeric_patterns:
+        match = re.search(pattern, question_lower)
+        if match:
+            value = match.group(1)
+            plan["filters"].append(f"{filter_type}={value}")
+            break
+    
     state["plan"] = plan
     state["confidence"] = 0.7  # Medium confidence for template-based generation
     state["reasoning"] += f" | Plan: {plan['objective']}"
@@ -146,6 +164,38 @@ def sql_generator(state: AgentState) -> AgentState:
     plan = state["plan"]
     tenant_col = state["tenant_column"]
     limit = plan["requested_limit"]
+    
+    # Extract filter values
+    rent_lt = rent_gt = rent_eq = None
+    arrears_lt = arrears_gt = None
+    date_range_days = 60  # default
+    
+    for filter_str in plan["filters"]:
+        if filter_str.startswith("rent_lt="):
+            rent_lt = int(filter_str.split("=")[1])
+        elif filter_str.startswith("rent_gt="):
+            rent_gt = int(filter_str.split("=")[1])
+        elif filter_str.startswith("rent_eq="):
+            rent_eq = int(filter_str.split("=")[1])
+        elif filter_str.startswith("arrears_gt="):
+            arrears_gt = int(filter_str.split("=")[1])
+        elif filter_str.startswith("arrears_lt="):
+            arrears_lt = int(filter_str.split("=")[1])
+        elif filter_str.startswith("date_range_days="):
+            date_range_days = int(filter_str.split("=")[1])
+    
+    # Build dynamic WHERE clauses
+    arrears_having = f"HAVING TotalArrears > {arrears_gt}" if arrears_gt else "HAVING TotalArrears > 0"
+    if arrears_lt:
+        arrears_having += f" AND TotalArrears < {arrears_lt}"
+    
+    tenancy_rent_filter = ""
+    if rent_lt:
+        tenancy_rent_filter = f"  AND t.RentAmount < {rent_lt}\n"
+    elif rent_gt:
+        tenancy_rent_filter = f"  AND t.RentAmount > {rent_gt}\n"
+    elif rent_eq:
+        tenancy_rent_filter = f"  AND t.RentAmount = {rent_eq}\n"
     
     # Template-based SQL generation (deterministic MVP)
     sql_templates = {
@@ -163,7 +213,7 @@ WHERE t.StatusCode = 'ACTIVE'
   AND rle.PaidDate IS NULL
   AND rle.DueDate < CURDATE()
 GROUP BY t.TenancyId, tn.FullName, p.AddressLine1, p.Suburb
-HAVING TotalArrears > 0
+{arrears_having}
 ORDER BY TotalArrears DESC
 LIMIT {limit}""",
         
@@ -181,8 +231,8 @@ INNER JOIN Tenants tn ON t.TenantId = tn.TenantId
 INNER JOIN Properties p ON t.PropertyId = p.PropertyId
 WHERE t.StatusCode = 'ACTIVE'
   AND t.LeaseEndDate IS NOT NULL
-  AND t.LeaseEndDate BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 60 DAY)
-ORDER BY t.LeaseEndDate ASC
+  AND t.LeaseEndDate BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL {date_range_days} DAY)
+{tenancy_rent_filter}ORDER BY t.LeaseEndDate ASC
 LIMIT {limit}""",
         
         "maintenance": f"""SELECT 

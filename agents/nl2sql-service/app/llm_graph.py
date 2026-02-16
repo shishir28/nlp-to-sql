@@ -8,6 +8,41 @@ from app.llm import get_llm_instance
 from app.schema_introspection import get_introspector
 import json
 
+# Database schema definition for accurate SQL generation
+SCHEMA_DEFINITION = """
+## MySQL Database Schema
+
+### Tenancies
+TenancyId INT (PK), TenantId INT (FK→Tenants), PropertyId INT (FK→Properties), 
+StatusCode VARCHAR ('ACTIVE'|'COMPLETED'|'TERMINATED'), StartDate DATE, LeaseEndDate DATE, 
+RentAmount DECIMAL, RentFrequency VARCHAR ('Weekly'|'Fortnightly'|'Monthly')
+
+### Tenants 
+TenantId INT (PK), FullName VARCHAR, Email VARCHAR, Phone VARCHAR
+
+### Properties
+PropertyId INT (PK), AddressLine1 VARCHAR, Suburb VARCHAR, Postcode VARCHAR
+
+### RentLedgerEntries
+RentLedgerEntryId INT (PK), TenancyId INT (FK→Tenancies), Amount DECIMAL, 
+DueDate DATE, PaidDate DATE (nullable)
+
+### MaintenanceJobs
+MaintenanceJobId INT (PK), PropertyId INT (FK→Properties), 
+StatusCode VARCHAR ('OPEN'|'IN_PROGRESS'|'COMPLETED'), Summary TEXT, 
+OpenedAtUtc DATETIME, EstimatedCost DECIMAL
+
+### Inspections
+InspectionId INT (PK), PropertyId INT (FK→Properties), 
+InspectionType VARCHAR ('Routine'|'Entry'|'Exit'), ScheduledDate DATE, CompletedDate DATE (nullable)
+
+### Common Patterns
+- Address format: CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress
+- Tenancies JOIN: t.TenantId = tn.TenantId, t.PropertyId = p.PropertyId
+- Date functions: CURDATE(), DATE_ADD(CURDATE(), INTERVAL N DAY), DATEDIFF(date1, date2)
+- CRITICAL: Column name is Phone (not PhoneNumber)
+"""
+
 
 class LLMAgentState(TypedDict):
     """State passed between LLM-powered agents"""
@@ -165,28 +200,30 @@ def sql_generator_agent(state: LLMAgentState) -> LLMAgentState:
         from app.graph import sql_generator as template_generator
         return template_generator(state)
     
-    system_prompt = """You are an expert SQL generator for MySQL 8.4.
+    system_prompt = f"""You are an expert SQL generator for MySQL 8.4.
 Generate clean, efficient SQL queries following these rules:
 
-1. SECURITY: DO NOT add tenant filtering (WHERE {tenant_column} = X) - this will be injected separately
-2. Use proper JOINs with table aliases
-3. Use CONCAT for address formatting
-4. Use DATEDIFF, CURDATE(), DATE_ADD for date calculations
-5. Always include LIMIT clause
-6. Use proper column names (case-sensitive)
-7. Format SQL nicely with indentation
+1. **CRITICAL**: DO NOT add tenant filtering (WHERE {{tenant_column}} = X) - this is injected separately
+2. Use EXACT column names from the schema below (case-sensitive!)
+3. Use proper JOINs with table aliases  
+4. Use CONCAT for address formatting
+5. Use DATEDIFF, CURDATE(), DATE_ADD for date calculations
+6. Always include LIMIT clause
+7. Format SQL with proper indentation
 
-Return ONLY the SQL query, no explanation."""
+{SCHEMA_DEFINITION}
+
+Return ONLY the SQL query, no explanation or markdown."""
     
-    user_prompt = f"""Generate SQL for this question:
+    user_prompt = f"""Generate MySQL SQL for this question:
 Question: {state['question']}
 
 Query Plan: {state['query_plan']}
 
-Tables: {', '.join(state['scoped_tables'])}
+Relevant Tables: {', '.join(state['scoped_tables'])}
 Default LIMIT: {state['default_limit']}
 
-Generate the SQL query now."""
+Generate the SQL now using EXACT column names from the schema."""
     
     try:
         response = llm.invoke([
