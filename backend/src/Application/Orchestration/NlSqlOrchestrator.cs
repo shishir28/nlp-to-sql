@@ -2,6 +2,8 @@ using Application.Abstractions;
 using Contracts.Agent;
 using Contracts.Requests;
 using Contracts.Responses;
+using System.Globalization;
+using System.Linq;
 
 namespace Application.Orchestration;
 
@@ -15,6 +17,8 @@ public sealed class NlSqlOrchestrator(
     IQueryExecutor queryExecutor,
     IAuditLogger auditLogger) : INlSqlOrchestrator
 {
+    private const double MinimumExecutionConfidence = 0.55;
+
     public async Task<QueryResponse> HandleAsync(
         NlQueryRequest request,
         string customerId,
@@ -27,6 +31,22 @@ public sealed class NlSqlOrchestrator(
 
         try
         {
+            if (!IsMySqlDialect(policy.Dialect))
+            {
+                await LogAuditAsync(requestId, userId, customerId, role, request.Question,
+                    null, string.Empty, null, "blocked", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
+                    "UNSUPPORTED_DIALECT", $"Unsupported SQL dialect: {policy.Dialect}", cancellationToken);
+
+                return new QueryResponse
+                {
+                    RequestId = requestId,
+                    Status = "blocked",
+                    Message = "This environment currently supports MySQL queries only.",
+                    Explanation = "The query assistant is configured for MySQL 8-compatible execution only.",
+                    ErrorCode = "UNSUPPORTED_DIALECT"
+                };
+            }
+
             // Step 1: Call Python LangGraph service to generate SQL candidate
             var agentResponse = await agentClient.GenerateAsync(new Nl2SqlGenerateRequest
             {
@@ -39,16 +59,23 @@ public sealed class NlSqlOrchestrator(
                 },
                 Constraints = new Nl2SqlConstraints
                 {
-                    TenantColumn = "CustomerId",
-                    DefaultLimit = 50,
+                    Dialect = policy.Dialect,
+                    TenantColumn = policy.TenantColumn,
+                    DefaultLimit = policy.DefaultLimit,
                     MaxLimit = policy.MaxLimit,
-                    SelectOnly = true
-                }
+                    SelectOnly = policy.SelectOnly,
+                    AllowedTables = policy.AllowedTables,
+                    AllowedFunctions = policy.AllowedFunctions
+                },
+                ConversationId = request.ConversationId
             }, cancellationToken);
 
             // Step 2: Handle clarification requests
-            if (agentResponse.NeedsClarification || agentResponse.Confidence < 0.5)
+            if (agentResponse.NeedsClarification || agentResponse.Confidence < MinimumExecutionConfidence)
             {
+                var clarificationMessage = agentResponse.ClarificationPrompt
+                    ?? BuildFallbackClarificationPrompt(agentResponse.DetectedDomain);
+
                 await LogAuditAsync(requestId, userId, customerId, role, request.Question,
                     agentResponse.DetectedDomain ?? "unknown", agentResponse.SqlCandidate, null, "clarification_needed",
                     Array.Empty<string>(), Array.Empty<string>(), 0, 0, null, null, cancellationToken);
@@ -58,7 +85,8 @@ public sealed class NlSqlOrchestrator(
                     RequestId = requestId,
                     Status = "clarification_needed",
                     Domain = agentResponse.DetectedDomain ?? "unknown",
-                    Message = agentResponse.ClarificationPrompt ?? "Please provide more details about your query."
+                    Message = clarificationMessage,
+                    Explanation = BuildClarificationExplanation(agentResponse.DetectedDomain, agentResponse.Confidence)
                 };
             }
 
@@ -81,6 +109,7 @@ public sealed class NlSqlOrchestrator(
                     Status = "blocked",
                     Domain = agentResponse.DetectedDomain ?? "unknown",
                     Message = firewallResult.Reason ?? "Query blocked by security policy.",
+                    Explanation = BuildBlockedExplanation(agentResponse.DetectedDomain),
                     ErrorCode = "SQL_FIREWALL_REJECTED"
                 };
             }
@@ -107,7 +136,12 @@ public sealed class NlSqlOrchestrator(
                 Rows = rows,
                 Columns = columns,
                 RowCount = rows.Count,
-                ExecutionMs = executionMs
+                ExecutionMs = executionMs,
+                Explanation = BuildSuccessExplanation(
+                    agentResponse.DetectedDomain,
+                    agentResponse.ScopedTables,
+                    rows.Count,
+                    firewallResult.RuleHits)
             };
         }
         catch (Exception ex)
@@ -121,9 +155,54 @@ public sealed class NlSqlOrchestrator(
                 RequestId = requestId,
                 Status = "error",
                 Message = "An error occurred while processing your query.",
+                Explanation = "The request could not be completed. Please rephrase your question and try again.",
                 ErrorCode = "EXECUTION_ERROR"
             };
         }
+    }
+
+    private static bool IsMySqlDialect(string dialect) =>
+        !string.IsNullOrWhiteSpace(dialect)
+        && dialect.StartsWith("mysql", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildFallbackClarificationPrompt(string? detectedDomain)
+    {
+        var domainHint = string.IsNullOrWhiteSpace(detectedDomain) || detectedDomain.Equals("general", StringComparison.OrdinalIgnoreCase)
+            ? "your request"
+            : $"{detectedDomain} request";
+
+        return $"I can help with this {domainHint}, but I need one more detail such as a date range, status, or property scope.";
+    }
+
+    private static string BuildClarificationExplanation(string? detectedDomain, double confidence)
+    {
+        var domainLabel = string.IsNullOrWhiteSpace(detectedDomain) ? "general" : detectedDomain;
+        var confidencePercent = Math.Round(confidence * 100, MidpointRounding.AwayFromZero);
+        return $"The question was interpreted as '{domainLabel}' with {confidencePercent.ToString(CultureInfo.InvariantCulture)}% confidence, so more detail is needed before executing.";
+    }
+
+    private static string BuildBlockedExplanation(string? detectedDomain)
+    {
+        var domainLabel = string.IsNullOrWhiteSpace(detectedDomain) ? "general" : detectedDomain;
+        return $"A {domainLabel} query was generated but blocked by safety rules before execution.";
+    }
+
+    private static string BuildSuccessExplanation(
+        string? detectedDomain,
+        IReadOnlyList<string> scopedTables,
+        int rowCount,
+        IReadOnlyList<string> ruleHits)
+    {
+        var domainLabel = string.IsNullOrWhiteSpace(detectedDomain) ? "general" : detectedDomain;
+        var scopedTablesText = scopedTables.Count > 0
+            ? string.Join(", ", scopedTables.Take(3))
+            : "allowed property-management tables";
+        var rowLabel = rowCount == 1 ? "row" : "rows";
+        var limitApplied = ruleHits.Contains("R007_LIMIT_INJECTED", StringComparer.OrdinalIgnoreCase)
+            || ruleHits.Contains("R007_LIMIT_CAPPED", StringComparer.OrdinalIgnoreCase);
+        var limitNote = limitApplied ? " Result limits were applied for safety and performance." : string.Empty;
+
+        return $"Ran a {domainLabel} query over {scopedTablesText} and returned {rowCount} {rowLabel}.{limitNote}";
     }
 
     private Task LogAuditAsync(

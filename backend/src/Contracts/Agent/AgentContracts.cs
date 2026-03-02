@@ -34,6 +34,9 @@ public sealed class UserContext
 
 public sealed class Nl2SqlConstraints
 {
+    [JsonPropertyName("dialect")]
+    public string Dialect { get; init; } = "mysql8";
+
     [JsonPropertyName("tenant_column")]
     public string TenantColumn { get; init; } = "CustomerId";
 

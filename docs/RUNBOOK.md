@@ -164,6 +164,8 @@ Expected behavior:
 - Page loads with purple gradient background
 - Example buttons work
 - Query executes in < 3 seconds
+- UI may show a clarification prompt if question is ambiguous
+- UI shows a plain-English explanation of executed query behavior
 - Results table shows columns: TenancyId, TenantName, PropertyAddress, LeaseStartDate, LeaseEndDate, RentAmount, RentFrequency, DaysUntilExpiry
 
 ## Service URLs
@@ -172,7 +174,7 @@ Once running, access:
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| Angular UI | http://localhost:4200 | Main user interface |
+| Angular UI | http://localhost:4200 | Main user interface (NL input/output, no SQL display) |
 | .NET API | http://localhost:5000 | Trust boundary / SQL execution |
 | Python Agent | http://localhost:8000 | LangGraph SQL generation |
 | MySQL | localhost:3306 | Database |
@@ -230,7 +232,7 @@ rm -rf node_modules
 npm install
 ```
 
-### Agent returns clarification instead of SQL
+### Agent returns clarification instead of results
 **Symptom**: Every query returns "I need more information..."
 
 **Cause**: Python service keyword matching too strict

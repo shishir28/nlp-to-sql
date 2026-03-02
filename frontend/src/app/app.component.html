@@ -40,8 +40,16 @@
         <strong>Error:</strong> {{ error }}
     </div>
 
-    <div *ngIf="response?.message && response?.status !== 'success'" class="alert alert-warning">
+    <div *ngIf="response?.message && isClarificationResponse()" class="alert alert-info">
+        <strong>Need more detail:</strong> {{ response?.message }}
+    </div>
+
+    <div *ngIf="response?.message && response?.status !== 'ok' && !isClarificationResponse()" class="alert alert-warning">
         {{ response?.message }}
+    </div>
+
+    <div *ngIf="response?.explanation" class="alert alert-note">
+        {{ response?.explanation }}
     </div>
 
     <div *ngIf="response && response.status === 'ok'" class="results-panel">

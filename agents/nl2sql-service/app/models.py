@@ -11,6 +11,7 @@ class UserContext(BaseModel):
 
 class Nl2SqlConstraints(BaseModel):
     """Constraints and policies for SQL generation"""
+    dialect: str = "mysql8"
     tenant_column: str = "CustomerId"
     default_limit: int = 50
     max_limit: int = 200

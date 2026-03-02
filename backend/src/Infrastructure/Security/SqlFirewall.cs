@@ -22,11 +22,17 @@ public sealed partial class SqlFirewall : ISqlFirewall
     [GeneratedRegex(@"\blimit\s+\d+", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex LimitRegex();
 
+    [GeneratedRegex(@"\blimit\s+(\d+)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex LimitValueRegex();
+
     [GeneratedRegex(@"\bwhere\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex WhereClauseRegex();
 
     [GeneratedRegex(@"\bfrom\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)?", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex FromTableAliasRegex();
+
+    [GeneratedRegex(@"\bjoin\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex JoinKeywordRegex();
 
     public FirewallResult ValidateAndRewrite(string sqlCandidate, string customerId, SchemaPolicy policy)
     {
@@ -85,6 +91,16 @@ public sealed partial class SqlFirewall : ISqlFirewall
 
         ruleHits.Add("R003_TABLE_ALLOWLIST");
 
+        // Rule R004: JOIN depth check
+        var joinCount = JoinKeywordRegex().Matches(sqlCandidate).Count;
+        if (joinCount > policy.MaxJoinDepth)
+        {
+            violations.Add($"Join depth {joinCount} exceeds max {policy.MaxJoinDepth}");
+            return Reject($"Query exceeds maximum join depth of {policy.MaxJoinDepth}.", ruleHits, violations);
+        }
+
+        ruleHits.Add("R004_JOIN_DEPTH_OK");
+
         // Rule R009: Forbidden pattern detection
         foreach (var pattern in policy.ForbiddenPatterns)
         {
@@ -109,7 +125,18 @@ public sealed partial class SqlFirewall : ISqlFirewall
         }
         else
         {
-            ruleHits.Add("R007_LIMIT_PRESENT");
+            var limitMatch = LimitValueRegex().Match(rewritten);
+            if (limitMatch.Success
+                && int.TryParse(limitMatch.Groups[1].Value, out var requestedLimit)
+                && requestedLimit > policy.MaxLimit)
+            {
+                rewritten = LimitValueRegex().Replace(rewritten, $"LIMIT {policy.MaxLimit}", 1);
+                ruleHits.Add("R007_LIMIT_CAPPED");
+            }
+            else
+            {
+                ruleHits.Add("R007_LIMIT_PRESENT");
+            }
         }
 
         return new FirewallResult

@@ -478,9 +478,12 @@ class LLMAgentStateDict(TypedDict, total=False):
     customer_id: str
     user_id: str
     role: str
+    dialect: str
     tenant_column: str
     default_limit: int
+    max_limit: int
     allowed_tables: List[str]
+    allowed_functions: List[str]
     
     # Agent outputs
     detected_domain: str
@@ -540,8 +543,6 @@ Given a natural language question, identify:
 2. Relevant database tables needed to answer the question
 3. Your confidence level (0.0 to 1.0)
 
-Available tables: {tables}
-
 Respond in JSON format:
 {{
     "domain": "domain_name",
@@ -554,7 +555,7 @@ Respond in JSON format:
 
 Available tables: {', '.join(state['allowed_tables'])}
 
-Classify the domain and identify relevant tables."""
+Classify the domain and identify relevant tables. Only use the listed available tables."""
     
     try:
         logger.debug(f"[Domain Classifier] Calling LLM with {len(state['allowed_tables'])} tables")
@@ -719,7 +720,14 @@ def sql_generator_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # Phase 2: Use extracted limit
     limit_value = state.get('extracted_limit', state['default_limit'])
+    max_limit = state.get('max_limit', state['default_limit'])
+    if limit_value > max_limit:
+        logger.info(f"[SQL Generator] Capping extracted limit {limit_value} to max_limit {max_limit}")
+        limit_value = max_limit
     
+    allowed_functions = state.get('allowed_functions', [])
+    functions_hint = ", ".join(allowed_functions) if allowed_functions else "COUNT, SUM, AVG, MIN, MAX, CONCAT, DATEDIFF, DATE_ADD"
+
     system_prompt = f"""You are an expert SQL generator for MySQL 8.4.
 Generate clean, efficient SQL queries following these rules:
 
@@ -730,6 +738,7 @@ Generate clean, efficient SQL queries following these rules:
 5. Use DATEDIFF, CURDATE(), DATE_ADD for date calculations
 6. Always include LIMIT clause
 7. Format SQL with proper indentation
+8. Only use these SQL functions: {functions_hint}
 
 {SCHEMA_DEFINITION}
 
@@ -913,7 +922,11 @@ AUTO-FIX any issues and provide revised_sql."""
         
         if state["needs_clarification"]:
             issues = result.get("issues", [])
-            state["clarification_prompt"] = f"Question is ambiguous: {', '.join(issues)}"
+            details = ", ".join(issues) if issues else "the timeframe, status, or property scope"
+            state["clarification_prompt"] = (
+                "I need one more detail before I can run this safely. "
+                f"Please clarify {details}."
+            )
             logger.warning(f"[SQL Validator] Clarification needed: {state['clarification_prompt']}")
         else:
             status = "auto-corrected and validated" if has_auto_fix else "validated"

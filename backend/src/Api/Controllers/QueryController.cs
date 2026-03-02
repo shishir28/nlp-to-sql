@@ -10,16 +10,13 @@ namespace Api.Controllers;
 public class QueryController : ControllerBase
 {
     private readonly INlSqlOrchestrator _orchestrator;
-    private readonly ISchemaPolicyProvider _policyProvider;
     private readonly ILogger<QueryController> _logger;
 
     public QueryController(
         INlSqlOrchestrator orchestrator,
-        ISchemaPolicyProvider policyProvider,
         ILogger<QueryController> logger)
     {
         _orchestrator = orchestrator;
-        _policyProvider = policyProvider;
         _logger = logger;
     }
 
@@ -30,6 +27,16 @@ public class QueryController : ControllerBase
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(request.Question))
+            {
+                return BadRequest(new QueryResponse
+                {
+                    Status = "error",
+                    Message = "Please provide a non-empty natural language question.",
+                    ErrorCode = "INVALID_REQUEST"
+                });
+            }
+
             // Extract context from auth claims (fallback to dev values for local testing)
             var customerId = User.FindFirst("customer_id")?.Value ?? "1";
             var userId = User.FindFirst("sub")?.Value ?? "local-dev-user";
@@ -54,7 +61,8 @@ public class QueryController : ControllerBase
             return StatusCode(500, new QueryResponse
             {
                 Status = "error",
-                Message = $"Internal server error: {ex.Message}"
+                Message = "Internal server error.",
+                ErrorCode = "INTERNAL_ERROR"
             });
         }
     }

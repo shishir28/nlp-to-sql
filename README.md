@@ -28,7 +28,8 @@ This system lets property managers ask questions in plain English and receive da
 3. Agent analyzes question, detects domain (arrears/tenancy/maintenance), generates SQL
 4. .NET SQL Firewall validates SQL and injects tenant isolation: `WHERE CustomerId = @customerId`
 5. Query executes against MySQL with strict timeout
-6. Results displayed in responsive table with execution time
+6. API returns result rows plus a plain-English explanation (no raw SQL in UI)
+7. Results displayed in responsive table with execution time
 
 ---
 
@@ -73,7 +74,7 @@ This system lets property managers ask questions in plain English and receive da
 **Security Model:**
 - **.NET API = Trusted** (has DB credentials, enforces all security)
 - **Python Agent = Untrusted** (returns SQL strings, no DB access)
-- **Angular UI = Untrusted** (HTTP client only)
+- **Angular UI = Untrusted** (HTTP client only, never receives SQL text)
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed design.
 
@@ -136,6 +137,7 @@ npm start
 |----------|---------|
 | [RUNBOOK.md](docs/RUNBOOK.md) | Complete setup guide, troubleshooting, service URLs |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, data flow, security model, tech stack |
+| [MESSAGE_FLOW.md](docs/MESSAGE_FLOW.md) | End-to-end request/control flow diagrams (success, clarification, blocked, error) |
 | [ADR-001: Trust Boundary](docs/adrs/001-trust-boundary.md) | Why .NET API is the security enforcement layer |
 | [ADR-002: Tenant Enforcement](docs/adrs/002-tenant-enforcement.md) | How `CustomerId` injection prevents tenant data leaks |
 
@@ -146,7 +148,8 @@ npm start
 ### Security-First Design
 - ✅ **Zero-trust architecture**: Python agent cannot access database
 - ✅ **Multi-tenancy enforcement**: `WHERE CustomerId = @customerId` injected on every query
-- ✅ **SQL Firewall**: Blocks INSERT/UPDATE/DELETE, validates table allowlists, injects LIMIT
+- ✅ **SQL Firewall**: Blocks mutations, enforces table/function allowlists, join-depth limits, tenant injection, and LIMIT capping
+- ✅ **MySQL-only execution**: Orchestrator and agent reject unsupported SQL dialects
 - ✅ **Audit logging**: Every query execution logged with structured JSON
 
 ### Australian Property Domain
@@ -182,7 +185,7 @@ npm start
 ### Arrears Detection
 **Question**: *"Which tenancies have arrears?"*
 
-**Generated SQL** includes tenant isolation and arrears filtering with GROUP BY aggregation.
+**Execution behavior**: Tenant isolation is enforced by firewall and arrears aggregations are returned as result rows.
 
 ### Lease Expiry Monitoring
 **Question**: *"Show active tenancies ending in next 60 days"*

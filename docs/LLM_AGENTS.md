@@ -19,7 +19,9 @@ User Question
      ↓ (SQL Candidate)
 [Agent 4: SQL Validator]
      ↓ (Validated SQL)
-  Output
+(.NET firewall + MySQL execution)
+     ↓
+NL Results + Explanation (UI)
 ```
 
 ### Agent Responsibilities
@@ -45,6 +47,16 @@ User Question
    - Checks logic, syntax, performance
    - May revise SQL if issues found
    - Outputs: confidence, validation_notes, revised_sql
+
+## Execution Constraints
+
+- SQL is generated and validated internally; the frontend does not render SQL text.
+- Execution is MySQL-only (`dialect: mysql8`) end-to-end.
+- Agent is constrained by policy inputs from the API:
+  - `allowed_tables`
+  - `allowed_functions`
+  - `default_limit` / `max_limit`
+  - `tenant_column`
 
 ## Quick Start
 
@@ -204,6 +216,7 @@ If LLM fails (API error, timeout), system automatically falls back to templates 
 3. Use environment variables only
 4. Consider using secrets management in production
 5. Tenant filtering still enforced by .NET firewall
+6. SQL firewall enforces allowlists, join depth, and limit capping before execution
 
 ## Next Steps
 

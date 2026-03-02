@@ -1,5 +1,7 @@
 # 🏗️ Architecture Overview
 
+For a developer-focused message/control-flow view, see [MESSAGE_FLOW.md](MESSAGE_FLOW.md).
+
 ## System Design
 
 This is a **multi-tenant Australian Property Management NL→SQL analytics application** with a three-service architecture enforcing strict security boundaries.
@@ -17,6 +19,7 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
 │  • Standalone components                                         │
 │  • HttpClient for API calls                                      │
 │  • No direct database access                                     │
+│  • Displays rows + plain-English explanation (never raw SQL)     │
 │  • Responsive gradient UI                                        │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │
@@ -31,15 +34,17 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
 │  │ 4. Run SQL Firewall (validate + inject tenant predicate)    │ │
 │  │ 5. Execute approved SQL with Dapper                          │ │
 │  │ 6. Audit log to console                                      │ │
-│  │ 7. Return QueryResponse to frontend                          │ │
+│  │ 7. Return QueryResponse (rows + explanation, no SQL)        │ │
 │  └────────────────────────────────────────────────────────────┘ │
 │                                                                   │
 │  Security Enforced Here:                                         │
 │  ✓ CustomerId ALWAYS from auth, never from user input           │
 │  ✓ SQL firewall blocks mutations (INSERT/UPDATE/DELETE)         │
 │  ✓ Tenant predicate injected: WHERE CustomerId = @customerId    │
-│  ✓ LIMIT enforcement (default 50, max 200)                       │
+│  ✓ LIMIT enforcement + max-limit capping                         │
+│  ✓ JOIN depth enforcement (maxJoinDepth from policy)             │
 │  ✓ Table/function allowlists from policy                         │
+│  ✓ MySQL-only dialect enforcement                                 │
 │  ✓ Python service NEVER gets DB credentials                      │
 └────────────┬──────────────────────────────────┬─────────────────┘
              │                                  │
@@ -67,7 +72,8 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
 │  • sql_candidate (string)   │  │  Seeding: Bogus (10K+ rows)    │
 │  • confidence (0.0-1.0)     │  │                                │
 │  • needs_clarification      │  │                                │
-│  • reasoning                │  │                                │
+│  • clarification_prompt      │  │                                │
+│  • reasoning (internal)      │  │                                │
 └─────────────────────────────┘  └────────────────────────────────┘
 ```
 
@@ -89,7 +95,14 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
    │       {
    │         "question": "Show active tenancies ending in next 60 days",
    │         "context": { "customer_id": "1", "role": "PropertyManager" },
-   │         "constraints": { "allowed_tables": [...], "default_limit": 50 }
+   │         "constraints": {
+   │           "dialect": "mysql8",
+   │           "tenant_column": "CustomerId",
+   │           "default_limit": 50,
+   │           "max_limit": 200,
+   │           "allowed_tables": [...],
+   │           "allowed_functions": [...]
+   │         }
    │       }
    │
    ├─▶ Step 2: Agent returns
@@ -120,7 +133,9 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
      "columns": [...],
      "rowCount": 12,
      "executionMs": 245,
-     "status": "success"
+     "status": "ok",
+     "explanation": "Ran a tenancy query ...",
+     "domain": "tenancy"
    }
 
 5. Angular displays results table
@@ -147,6 +162,7 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
 - **❌ Untrusted**: Angular Frontend
   - No database credentials
   - Can only call API via HTTP
+  - Never receives SQL candidate/approved SQL
   - Cannot bypass firewall
 
 ### Multi-Tenancy Enforcement
@@ -188,8 +204,9 @@ Implemented in `Infrastructure/Security/SqlFirewall.cs`:
 | R001 | SELECT-only (regex) | Reject if INSERT/UPDATE/DELETE/DROP/etc found |
 | R002 | Single statement | Reject if semicolon-separated statements |
 | R003 | Table allowlist | Reject if table not in schema-policy.json |
+| R004 | Max join depth | Reject if JOIN count > `maxJoinDepth` |
 | R006 | Tenant predicate injection | Always inject `WHERE CustomerId = @customerId` |
-| R007 | LIMIT enforcement | Inject `LIMIT 50` if missing |
+| R007 | LIMIT enforcement | Inject default LIMIT or cap to policy max |
 | R009 | Forbidden patterns | Reject if `--`, `/**/`, `UNION`, `INFORMATION_SCHEMA` found |
 
 ### Schema Policy
@@ -227,23 +244,25 @@ Defined in `db/policy/schema-policy.json`:
 - **Responsibilities**:
   - Render query input form
   - Display results in table
+  - Display clarification prompts and plain-English execution explanations
   - Handle loading/error states
   - Provide example queries
 - **Technology**: Angular 19 standalone components
-- **Security**: No secrets, no direct DB access
+- **Security**: No secrets, no direct DB access, no SQL display
 
 ### .NET API (Trust Boundary)
 - **Purpose**: Security enforcement and query execution
 - **Responsibilities**:
   - Extract `customerId` from JWT claims (dev: hardcoded fallback)
   - Load schema policy from JSON file
+  - Enforce MySQL-only dialect for execution pipeline
   - Orchestrate 5-step pipeline:
-    1. Call Python agent for SQL candidate
+    1. Call Python agent for SQL candidate with policy constraints (`allowedTables`, `allowedFunctions`, limits)
     2. Check confidence/clarification
     3. Run SQL firewall (validate + rewrite)
     4. Execute approved SQL with Dapper + MySqlConnector
-    5. Audit log structured event
-  - Return QueryResponse to frontend
+    5. Audit log structured event + return NL explanation
+  - Return QueryResponse to frontend without SQL text
 - **Technology**: ASP.NET Core 8, Dapper, MySqlConnector
 - **Security**: Owns all secrets, enforces all rules
 
@@ -253,8 +272,9 @@ Defined in `db/policy/schema-policy.json`:
   - Parse user question
   - Detect domain (arrears, tenancy, maintenance, etc.)
   - Scope relevant tables
-  - Generate SQL using templates (MVP: no LLM)
-  - Return structured response with confidence score
+  - Generate SQL using templates or LLM
+  - Validate request dialect compatibility (MySQL only)
+  - Return structured response with confidence + clarification prompt
 - **Technology**: FastAPI, LangGraph, Pydantic
 - **Security**: Stateless, no secrets, treated as untrusted
 

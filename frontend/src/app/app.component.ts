@@ -33,10 +33,7 @@ export class AppComponent {
       next: (response) => {
         this.response = response;
         this.loading = false;
-
-        if (response.status !== "ok") {
-          this.error = response.message || "Query failed";
-        }
+        this.error = this.getErrorForStatus(response);
       },
       error: (err) => {
         this.error =
@@ -61,5 +58,17 @@ export class AppComponent {
   loadExample(example: string): void {
     this.question = example;
     this.clearResults();
+  }
+
+  isClarificationResponse(): boolean {
+    return this.response?.status === "clarification_needed";
+  }
+
+  private getErrorForStatus(response: QueryResponse): string | undefined {
+    if (response.status === "ok" || response.status === "clarification_needed") {
+      return undefined;
+    }
+
+    return response.message || "Query failed";
   }
 }

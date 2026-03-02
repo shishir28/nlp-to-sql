@@ -35,9 +35,12 @@ class LLMAgentState(BaseModel):
     customer_id: str = Field(..., description="Customer ID for multi-tenancy")
     user_id: str = Field(..., description="User making the request")
     role: str = Field(..., description="User role (PropertyManager, Tenant, Owner)")
+    dialect: str = Field(default="mysql8", description="SQL dialect expected by execution layer")
     tenant_column: str = Field(default="CustomerId", description="Column used for tenant filtering")
     default_limit: int = Field(default=50, ge=1, le=1000, description="Default row limit")
+    max_limit: int = Field(default=200, ge=1, le=1000, description="Maximum row limit")
     allowed_tables: List[str] = Field(default_factory=list, description="Tables accessible to this user")
+    allowed_functions: List[str] = Field(default_factory=list, description="Functions permitted by SQL firewall")
     
     # ===== Agent Outputs (Optional with defaults) =====
     detected_domain: Optional[str] = Field(None, description="Classified business domain")

@@ -10,9 +10,12 @@ class AgentState(TypedDict):
     customer_id: str
     user_id: str
     role: str
+    dialect: str
     tenant_column: str
     default_limit: int
+    max_limit: int
     allowed_tables: list[str]
+    allowed_functions: list[str]
     
     # Intermediate state
     detected_domain: str
@@ -152,6 +155,9 @@ def planner(state: AgentState) -> AgentState:
             plan["filters"].append(f"{filter_type}={value}")
             break
     
+    if plan["requested_limit"] > state["max_limit"]:
+        plan["requested_limit"] = state["max_limit"]
+
     state["plan"] = plan
     state["confidence"] = 0.7  # Medium confidence for template-based generation
     state["reasoning"] += f" | Plan: {plan['objective']}"
@@ -292,8 +298,8 @@ def clarification_node(state: AgentState) -> AgentState:
     """Handle cases needing clarification"""
     state["needs_clarification"] = True
     state["clarification_prompt"] = (
-        f"I need more information to answer '{state['question']}'. "
-        "Could you please specify which properties, dates, or statuses you're interested in?"
+        "I need one more detail before I can answer this. "
+        "Please specify a date range, property scope, or status."
     )
     state["sql_candidate"] = ""
     state["confidence"] = 0.3

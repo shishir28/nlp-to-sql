@@ -62,6 +62,12 @@ async def generate_sql(request: Nl2SqlGenerateRequest) -> Nl2SqlGenerateResponse
     """
     try:
         logger.info(f"Received request: {request.question} from customer {request.context.customer_id}")
+
+        if not request.constraints.dialect.lower().startswith("mysql"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported dialect '{request.constraints.dialect}'. This service supports MySQL only."
+            )
         
         # Phase 2: Check cache first (LLM mode only)
         cache_key = None
@@ -89,9 +95,12 @@ async def generate_sql(request: Nl2SqlGenerateRequest) -> Nl2SqlGenerateResponse
                 customer_id=request.context.customer_id,
                 user_id=request.context.user_id,
                 role=request.context.role,
+                dialect=request.constraints.dialect,
                 tenant_column=request.constraints.tenant_column,
                 default_limit=request.constraints.default_limit,
+                max_limit=request.constraints.max_limit,
                 allowed_tables=request.constraints.allowed_tables,
+                allowed_functions=request.constraints.allowed_functions,
                 metrics_collector=metrics,
                 extracted_limit=extracted_limit,
                 extracted_filters=extracted_filters
@@ -105,9 +114,12 @@ async def generate_sql(request: Nl2SqlGenerateRequest) -> Nl2SqlGenerateResponse
                 "customer_id": request.context.customer_id,
                 "user_id": request.context.user_id,
                 "role": request.context.role,
+                "dialect": request.constraints.dialect,
                 "tenant_column": request.constraints.tenant_column,
                 "default_limit": request.constraints.default_limit,
+                "max_limit": request.constraints.max_limit,
                 "allowed_tables": request.constraints.allowed_tables,
+                "allowed_functions": request.constraints.allowed_functions,
                 "detected_domain": "",
                 "scoped_tables": [],
                 "plan": {},
@@ -150,6 +162,8 @@ async def generate_sql(request: Nl2SqlGenerateRequest) -> Nl2SqlGenerateResponse
         logger.info(f"Generated SQL with confidence {response.confidence}: {response.sql_candidate[:100]}...")
         return response
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating SQL: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"SQL generation failed: {str(e)}")
