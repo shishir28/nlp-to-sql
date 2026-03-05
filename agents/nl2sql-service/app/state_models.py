@@ -2,7 +2,7 @@
 Phase 3: Pydantic models for type-safe state management
 Replaces TypedDict with validated Pydantic BaseModel
 """
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
@@ -66,19 +66,22 @@ class LLMAgentState(BaseModel):
     prompt_version: str = Field(default="v1", description="Prompt template version used")
     schema_version: str = Field(default="1.0", description="Database schema version")
     
-    @validator('question')
+    @field_validator('question')
+    @classmethod
     def clean_question(cls, v: str) -> str:
         """Normalize question text"""
         return v.strip()
-    
-    @validator('default_limit', 'extracted_limit')
+
+    @field_validator('default_limit', 'extracted_limit')
+    @classmethod
     def validate_limit(cls, v: Optional[int]) -> Optional[int]:
         """Ensure limit is within acceptable range"""
         if v is not None and v > 1000:
             return 1000
         return v
-    
-    @validator('confidence', 'domain_confidence')
+
+    @field_validator('confidence', 'domain_confidence')
+    @classmethod
     def validate_confidence(cls, v: float) -> float:
         """Ensure confidence is between 0 and 1"""
         return max(0.0, min(1.0, v))
@@ -88,28 +91,6 @@ class LLMAgentState(BaseModel):
         validate_assignment = True  # Validate on field updates
         arbitrary_types_allowed = True  # Allow MetricsCollector and other custom types
 
-
-class AgentMetrics(BaseModel):
-    """Metrics for individual agent execution"""
-    agent_name: str
-    duration_ms: float = Field(ge=0.0)
-    success: bool = True
-    error_message: str = ""
-    retry_count: int = Field(default=0, ge=0)
-    tokens_used: Optional[int] = Field(None, ge=0)
-    llm_calls: int = Field(default=0, ge=0)
-
-
-class PipelineMetrics(BaseModel):
-    """Overall pipeline metrics"""
-    total_duration_ms: float = Field(ge=0.0)
-    cache_hit: bool = False
-    agents: List[AgentMetrics] = Field(default_factory=list)
-    success_rate: float = Field(ge=0.0, le=1.0)
-    llm_cost_usd: Optional[float] = Field(None, ge=0.0)
-    
-    class Config:
-        validate_assignment = True
 
 
 class PromptConfig(BaseModel):

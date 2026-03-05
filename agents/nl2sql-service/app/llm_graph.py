@@ -949,12 +949,12 @@ AUTO-FIX any issues and provide revised_sql."""
     return state
 
 
-def should_clarify(state: LLMAgentState) -> str:
+def should_clarify(state: Dict[str, Any]) -> str:
     """Route to clarification if validation failed or confidence too low"""
     return "clarify" if state.get("needs_clarification", False) else "end"
 
 
-def clarification_agent(state: LLMAgentState) -> LLMAgentState:
+def clarification_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     """Handle cases needing user clarification"""
     logger.warning(f"[Clarification] Query needs user clarification: {state.get('clarification_prompt', 'Unknown issue')}")
     state["sql_candidate"] = ""
