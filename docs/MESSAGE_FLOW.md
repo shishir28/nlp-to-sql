@@ -12,14 +12,17 @@ sequenceDiagram
     participant C as QueryController (.NET API)
     participant O as NlSqlOrchestrator
     participant A as Python Agent Service
+    participant S as Summarizer (/v1/nl2sql/summarize)
     participant W as SQL Firewall
     participant D as MySQL
     participant L as Audit Logger
 
     U->>F: Enter natural-language question
     F->>C: POST /api/query { question, conversationId? }
+    Note over F,C: SSE stream also started: POST /api/query/stream<br/>for live agent_start events (status display only)
     C->>O: HandleAsync(request, customerId, userId, role)
-    O->>A: POST /v1/nl2sql/generate + policy constraints
+    O->>A: POST /v1/nl2sql/generate + policy constraints + conversationId
+    Note over A: Parallel: domain_classifier + schema_prefetch<br/>then schema_analyzer → sql_generator → sql_validator
     A-->>O: { sql_candidate, confidence, needs_clarification, domain }
 
     alt clarification needed OR low confidence
@@ -38,9 +41,11 @@ sequenceDiagram
             O->>D: Execute rewritten SQL with @customerId
             D-->>O: rows + columns + executionMs
             O->>L: Log status=ok
-            O-->>C: QueryResponse(status=ok, rows, columns, domain, explanation)
+            O->>S: POST /v1/nl2sql/summarize { question, rows[0..9], domain }
+            S-->>O: { nl_summary: "3 tenancies are expiring..." }
+            O-->>C: QueryResponse(status=ok, rows, columns, domain, explanation, nlSummary)
             C-->>F: 200 response
-            F-->>U: Show results table + explanation
+            F-->>U: Show results table + NL summary + explanation
         end
     end
 ```
@@ -69,13 +74,29 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Q[Question + Constraints] --> DC[Domain Classifier]
-    DC --> SA[Schema Analyzer]
+    Q[Question + History + Constraints] --> DC[Domain Classifier]
+    Q --> SP[Schema Prefetch]
+    DC --> FI[Fan-in]
+    SP --> FI
+    FI --> SA[Schema Analyzer]
     SA --> SG[SQL Generator]
     SG --> SV[SQL Validator]
     SV --> R{needs_clarification?}
     R -->|Yes| CL[Clarification Prompt]
     R -->|No| OUT[SQL Candidate + Confidence]
+```
+
+## API Control Flow (Streaming)
+
+```mermaid
+flowchart TD
+    A[POST /api/query/stream] --> B[Forward to Python /v1/nl2sql/stream]
+    B --> C[SSE: agent_start x N]
+    C --> D[SSE: sql_generated]
+    D --> E[SSE: validation_done]
+    E --> F[SSE: done]
+    F --> G[Angular updates streaming status label only]
+    G --> H[Full execution via POST /api/query]
 ```
 
 ## Notes For New Developers
@@ -85,3 +106,6 @@ flowchart LR
 - Frontend never receives SQL text; it receives only safe response metadata and rows.
 - Tenant isolation is always injected by firewall via `CustomerId = @customerId`.
 - Policy constraints (`allowedTables`, `allowedFunctions`, limits, dialect) are sent to agent and enforced again by firewall.
+- `conversationId` flows from Angular → .NET → Python agent; conversation history is stored in Redis by the agent.
+- Summarization is best-effort: if the Python summarizer is unavailable, `nlSummary` is `null` and the response still returns rows normally.
+- The SSE stream (`/api/query/stream`) is for UI progress display only; actual SQL execution always goes through the standard `POST /api/query` pipeline including the SQL firewall.

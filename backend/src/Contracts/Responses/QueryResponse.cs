@@ -15,6 +15,7 @@ public sealed class QueryResponse
     public string? Explanation { get; init; }
     public string? Message { get; init; }
     public string? ErrorCode { get; init; }
+    public string? NlSummary { get; init; }
 }
 
 public sealed class ColumnInfo

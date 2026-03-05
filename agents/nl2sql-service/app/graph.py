@@ -267,7 +267,7 @@ WHERE {"i.ScheduledDate < CURDATE()" if plan.get("temporal_filter") == "past" el
 ORDER BY i.ScheduledDate {"DESC" if plan.get("temporal_filter") == "past" else "ASC"}
 LIMIT {limit}""",
         
-        "owner_statement": f"""SELECT 
+        "owner_statement": f"""SELECT
     os.OwnerStatementId,
     o.FullName AS OwnerName,
     os.PeriodStart,
@@ -279,6 +279,78 @@ LIMIT {limit}""",
 FROM OwnerStatements os
 INNER JOIN Owners o ON os.OwnerId = o.OwnerId
 ORDER BY os.PeriodEnd DESC
+LIMIT {limit}""",
+
+        "vendor": f"""SELECT
+    v.VendorId,
+    v.VendorName,
+    v.Category,
+    v.Phone,
+    v.Email,
+    v.IsActive
+FROM Vendors v
+WHERE v.IsActive = 1
+ORDER BY v.VendorName ASC
+LIMIT {limit}""",
+
+        "property_portfolio": f"""SELECT
+    p.PropertyId,
+    CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+    p.PropertyType,
+    p.Bedrooms,
+    p.Bathrooms,
+    p.Parking,
+    CASE WHEN t.TenancyId IS NOT NULL THEN 'Occupied' ELSE 'Vacant' END AS OccupancyStatus
+FROM Properties p
+LEFT JOIN Tenancies t ON p.PropertyId = t.PropertyId
+    AND t.StatusCode = 'ACTIVE'
+WHERE p.IsActive = 1
+ORDER BY p.Suburb ASC, p.AddressLine1 ASC
+LIMIT {limit}""",
+
+        "lease_renewal": f"""SELECT
+    t.TenancyId,
+    tn.FullName AS TenantName,
+    CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+    t.LeaseEndDate,
+    t.RentAmount,
+    t.RentFrequency,
+    DATEDIFF(t.LeaseEndDate, CURDATE()) AS DaysUntilExpiry
+FROM Tenancies t
+INNER JOIN Tenants tn ON t.TenantId = tn.TenantId
+INNER JOIN Properties p ON t.PropertyId = p.PropertyId
+WHERE t.StatusCode = 'ACTIVE'
+  AND t.LeaseEndDate IS NOT NULL
+  AND t.LeaseEndDate BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 90 DAY)
+ORDER BY t.LeaseEndDate ASC
+LIMIT {limit}""",
+
+        "compliance": f"""SELECT
+    i.InspectionId,
+    CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+    i.InspectionType,
+    i.ScheduledDate,
+    i.CompletedDate,
+    i.ComplianceStatus,
+    i.Notes
+FROM Inspections i
+INNER JOIN Properties p ON i.PropertyId = p.PropertyId
+WHERE i.ComplianceStatus IN ('FAIL', 'PENDING')
+ORDER BY i.ScheduledDate DESC
+LIMIT {limit}""",
+
+        "financial_summary": f"""SELECT
+    o.OwnerId,
+    o.FullName AS OwnerName,
+    SUM(os.GrossIncome) AS TotalGrossIncome,
+    SUM(os.Expenses) AS TotalExpenses,
+    SUM(os.ManagementFees) AS TotalManagementFees,
+    SUM(os.NetPayout) AS TotalNetPayout,
+    MAX(os.PeriodEnd) AS LatestPeriod
+FROM OwnerStatements os
+INNER JOIN Owners o ON os.OwnerId = o.OwnerId
+GROUP BY o.OwnerId, o.FullName
+ORDER BY TotalNetPayout DESC
 LIMIT {limit}"""
     }
     

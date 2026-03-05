@@ -508,6 +508,47 @@ class LLMAgentStateDict(TypedDict, total=False):
     agent_route: str
     prompt_version: str
 
+    # Parallel prefetch
+    prefetched_fk_map: Dict[str, Any]
+
+    # Conversation memory
+    conversation_history: List[Dict[str, Any]]
+
+
+def schema_prefetch_agent(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Parallel Agent: Schema Prefetch
+    Runs concurrently with domain_classifier to pre-load FK relationships from
+    INFORMATION_SCHEMA so schema_analyzer has them ready without waiting for an LLM call.
+    """
+    metric = state.get('metrics_collector').record('schema_prefetch') if state.get('metrics_collector') else None
+    logger.info("[Schema Prefetch] Pre-loading schema FK relationships")
+
+    try:
+        introspector = get_introspector()
+        allowed_tables = state.get("allowed_tables", [])
+
+        # Eagerly warm the FK cache for all allowed tables
+        if introspector._info_schema is not None:
+            fk_map = introspector._info_schema._load_fk_map()
+            prefetched = {t: fk_map.get(t, []) for t in allowed_tables}
+            state["prefetched_fk_map"] = prefetched
+            logger.info(f"[Schema Prefetch] FK map warmed for {len(prefetched)} tables")
+        else:
+            state["prefetched_fk_map"] = {}
+            logger.info("[Schema Prefetch] DB unavailable, skipping FK prefetch")
+
+        if metric:
+            metric.complete(success=True)
+
+    except Exception as e:
+        logger.warning(f"[Schema Prefetch] Failed: {e}")
+        state["prefetched_fk_map"] = {}
+        if metric:
+            metric.complete(success=False, error=str(e))
+
+    return state
+
 
 def domain_classifier_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -551,8 +592,13 @@ Respond in JSON format:
     "reasoning": "Brief explanation"
 }}"""
     
-    user_prompt = f"""Question: {state['question']}
+    history_block = ""
+    if state.get("conversation_history"):
+        from app.conversation_store import get_conversation_store
+        history_text = get_conversation_store().format_history_for_prompt(state["conversation_history"])
+        history_block = f"\n\nConversation history (for context):\n{history_text}\n"
 
+    user_prompt = f"""Question: {state['question']}{history_block}
 Available tables: {', '.join(state['allowed_tables'])}
 
 Classify the domain and identify relevant tables. Only use the listed available tables."""
@@ -744,9 +790,14 @@ Generate clean, efficient SQL queries following these rules:
 
 Return ONLY the SQL query, no explanation or markdown."""
     
-    user_prompt = f"""Generate MySQL SQL for this question:
-Question: {state['question']}
+    history_block = ""
+    if state.get("conversation_history"):
+        from app.conversation_store import get_conversation_store
+        history_text = get_conversation_store().format_history_for_prompt(state["conversation_history"])
+        history_block = f"\n\nConversation history (prior turns for context):\n{history_text}\n"
 
+    user_prompt = f"""Generate MySQL SQL for this question:
+Question: {state['question']}{history_block}
 Query Plan: {state['query_plan']}
 
 Relevant Tables: {', '.join(state['scoped_tables'])}
@@ -962,25 +1013,45 @@ def clarification_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 
+def parallel_fan_in(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge node: waits for both domain_classifier and schema_prefetch to complete
+    before forwarding state to schema_analyzer. No transformation needed —
+    LangGraph merges parallel branch outputs into a single state dict automatically.
+    """
+    logger.info("[Fan-in] Parallel branches merged — proceeding to schema_analyzer")
+    return state
+
+
 # Build the multi-agent graph
 def create_llm_agent_graph():
     logger.info("[Graph] Initializing LLM multi-agent graph")
     # Phase 3: Use TypedDict for LangGraph, Pydantic LLMAgentState used only for validation in main.py
     workflow = StateGraph(LLMAgentStateDict)
-    
+
     # Add agent nodes
     workflow.add_node("domain_classifier", domain_classifier_agent)
+    workflow.add_node("schema_prefetch", schema_prefetch_agent)
+    workflow.add_node("fan_in", parallel_fan_in)
     workflow.add_node("schema_analyzer", schema_analyzer_agent)
     workflow.add_node("sql_generator", sql_generator_agent)
     workflow.add_node("sql_validator", sql_validator_agent)
     workflow.add_node("clarify", clarification_agent)
-    
-    # Define sequential flow with parallel potential
+
+    # Parallel fan-out: domain_classifier and schema_prefetch run concurrently
     workflow.set_entry_point("domain_classifier")
-    workflow.add_edge("domain_classifier", "schema_analyzer")
+    workflow.add_edge("domain_classifier", "fan_in")
+
+    # schema_prefetch starts at the same time — wire it from START via a second entry
+    from langgraph.graph import START
+    workflow.add_edge(START, "schema_prefetch")
+    workflow.add_edge("schema_prefetch", "fan_in")
+
+    # Fan-in → sequential pipeline
+    workflow.add_edge("fan_in", "schema_analyzer")
     workflow.add_edge("schema_analyzer", "sql_generator")
     workflow.add_edge("sql_generator", "sql_validator")
-    
+
     # Conditional routing after validation
     workflow.add_conditional_edges(
         "sql_validator",
@@ -991,8 +1062,8 @@ def create_llm_agent_graph():
         }
     )
     workflow.add_edge("clarify", END)
-    
-    logger.info("[Graph] Multi-agent graph compiled successfully")
+
+    logger.info("[Graph] Multi-agent graph compiled successfully with parallel fan-out")
     return workflow.compile()
 
 

@@ -19,6 +19,7 @@ builder.Services.AddHttpClient();
 // Register application services
 builder.Services.AddScoped<INlSqlOrchestrator, NlSqlOrchestrator>();
 builder.Services.AddScoped<INl2SqlAgentClient, Nl2SqlAgentClient>();
+builder.Services.AddScoped<ISummarizationClient, SummarizationClient>();
 builder.Services.AddSingleton<ISchemaPolicyProvider, JsonSchemaPolicyProvider>();
 builder.Services.AddScoped<ISqlFirewall, SqlFirewall>();
 builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();

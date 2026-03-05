@@ -20,16 +20,21 @@ This system lets property managers ask questions in plain English and receive da
 - *"Which tenancies have arrears?"*
 - *"Show open maintenance jobs older than 30 days"*
 - *"List upcoming inspections for next month"*
-- *"What properties are in NSW with more than 3 bedrooms?"*
+- *"Which leases are expiring in 90 days?"*
+- *"Show vacant properties in portfolio"*
+- *"List all active contractors"*
+- *"Show non-compliant inspection results"*
+- *"Show total income summary by owner"*
 
 **Under the Hood:**
-1. User types natural language question in Angular UI
-2. .NET API routes question to Python LangGraph multi-agent service
-3. Agent analyzes question, detects domain (arrears/tenancy/maintenance), generates SQL
+1. User types a natural language question in Angular UI; live agent status is streamed via SSE
+2. .NET API routes question to Python LangGraph multi-agent service (with `conversationId` for multi-turn memory)
+3. Agent runs `domain_classifier` + `schema_prefetch` in parallel, then `schema_analyzer` → `sql_generator` → `sql_validator`
 4. .NET SQL Firewall validates SQL and injects tenant isolation: `WHERE CustomerId = @customerId`
 5. Query executes against MySQL with strict timeout
-6. API returns result rows plus a plain-English explanation (no raw SQL in UI)
-7. Results displayed in responsive table with execution time
+6. Python summarizer generates a plain-English NL summary of the returned rows
+7. API returns result rows + explanation + NL summary (no raw SQL in UI)
+8. Results displayed in responsive table with execution time and summary
 
 ---
 
@@ -240,14 +245,26 @@ See [docs/ARCHITECTURE.md#security-checklist-production](docs/ARCHITECTURE.md) f
 nlp-to-sql/
 ├── backend/
 │   └── src/
-│       ├── Api/              # ASP.NET Core entry point
-│       ├── Application/      # Business logic (orchestrator)
-│       ├── Contracts/        # DTOs (request/response)
-│       ├── Infrastructure/   # SQL firewall, executor, agent client
+│       ├── Api/              # ASP.NET Core entry point + SSE proxy endpoint
+│       ├── Application/      # Business logic (orchestrator + summarization)
+│       ├── Contracts/        # DTOs (request/response + summarize contracts)
+│       ├── Infrastructure/   # SQL firewall, executor, agent client, summarization client
 │       └── SeedRunner/       # Database seeding tool
 ├── agents/
-│   └── nl2sql-service/       # Python LangGraph service
-├── frontend/                 # Angular 19 UI
+│   └── nl2sql-service/
+│       ├── app/
+│       │   ├── graph.py              # Template pipeline (10 domains)
+│       │   ├── llm_graph.py          # LLM multi-agent graph (parallel fan-out)
+│       │   ├── conversation_store.py # Multi-turn memory (Redis + in-memory)
+│       │   ├── schema_introspection.py # Real FK lookup via INFORMATION_SCHEMA
+│       │   ├── state_models.py       # Pydantic state + Domain enum
+│       │   ├── models.py             # API request/response models
+│       │   ├── main.py               # FastAPI: /generate, /stream, /summarize
+│       │   ├── config.py             # Settings (LLM + DB + agent config)
+│       │   └── prompt_library.py     # YAML prompt templates (Jinja2)
+│       ├── domain-mapping.json       # Keyword→domain mappings
+│       └── prompts/                  # YAML prompt templates per agent
+├── frontend/                 # Angular 19 UI (SSE streaming + NL summary display)
 ├── db/                       # Migrations, Docker Compose, policies
 └── docs/                     # Architecture docs & ADRs
 ```

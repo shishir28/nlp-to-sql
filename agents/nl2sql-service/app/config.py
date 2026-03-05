@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     local_llm_base_url: str = "http://localhost:11434"
     local_llm_model: str = "llama3.2"
     
+    # Database Configuration (for schema introspection)
+    db_host: str = "localhost"
+    db_port: int = 3306
+    db_name: str = "propertydb"
+    db_user: str = "app"
+    db_password: str = ""
+    schema_cache_ttl: int = 300  # seconds to cache INFORMATION_SCHEMA results
+
     # Agent Configuration
     max_retries: int = 2
     agent_timeout: int = 30

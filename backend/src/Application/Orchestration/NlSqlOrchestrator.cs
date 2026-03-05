@@ -12,6 +12,7 @@ namespace Application.Orchestration;
 /// </summary>
 public sealed class NlSqlOrchestrator(
     INl2SqlAgentClient agentClient,
+    ISummarizationClient summarizationClient,
     ISchemaPolicyProvider policyProvider,
     ISqlFirewall sqlFirewall,
     IQueryExecutor queryExecutor,
@@ -128,6 +129,15 @@ public sealed class NlSqlOrchestrator(
                 agentResponse.DetectedDomain ?? "unknown", agentResponse.SqlCandidate, firewallResult.RewrittenSql,
                 "ok", firewallResult.RuleHits, Array.Empty<string>(), executionMs, rows.Count, null, null, cancellationToken);
 
+            // Step 6: Best-effort NL summary from Python summarization service
+            var nlSummary = await summarizationClient.SummarizeAsync(new Nl2SqlSummarizeRequest
+            {
+                Question = request.Question,
+                DetectedDomain = agentResponse.DetectedDomain,
+                RowCount = rows.Count,
+                Rows = rows.Take(10).ToList()
+            }, cancellationToken);
+
             return new QueryResponse
             {
                 RequestId = requestId,
@@ -141,7 +151,8 @@ public sealed class NlSqlOrchestrator(
                     agentResponse.DetectedDomain,
                     agentResponse.ScopedTables,
                     rows.Count,
-                    firewallResult.RuleHits)
+                    firewallResult.RuleHits),
+                NlSummary = nlSummary
             };
         }
         catch (Exception ex)

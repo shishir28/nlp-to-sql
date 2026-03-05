@@ -1,22 +1,13 @@
 <div class="container">
     <header class="header">
-        <h1>🏘️ Property Analytics - NL to SQL</h1>
+        <h1>Property Analytics - NL to SQL</h1>
         <p class="subtitle">Ask questions about your properties in natural language</p>
     </header>
 
     <div class="example-queries">
         <span class="example-label">Examples:</span>
-        <button class="example-btn" (click)="loadExample('Show active tenancies ending in next 60 days')">
-            Expiring Leases
-        </button>
-        <button class="example-btn" (click)="loadExample('Which tenancies have arrears?')">
-            Arrears
-        </button>
-        <button class="example-btn" (click)="loadExample('Show open maintenance jobs')">
-            Open Jobs
-        </button>
-        <button class="example-btn" (click)="loadExample('List upcoming inspections')">
-            Inspections
+        <button class="example-btn" *ngFor="let ex of examples" (click)="loadExample(ex.query)">
+            {{ ex.label }}
         </button>
     </div>
 
@@ -24,7 +15,7 @@
         <textarea [(ngModel)]="question"
             placeholder="Ask a question about your properties... e.g., 'Show active tenancies ending in next 60 days'"
             class="query-input" rows="3" [disabled]="loading">
-    </textarea>
+        </textarea>
 
         <div class="button-group">
             <button (click)="runQuery()" [disabled]="loading || !question.trim()" class="btn btn-primary">
@@ -33,6 +24,10 @@
             <button (click)="clearResults()" [disabled]="loading || (!response && !error)" class="btn btn-secondary">
                 Clear
             </button>
+        </div>
+
+        <div *ngIf="loading && streamingAgent" class="streaming-status">
+            <span class="streaming-dot"></span> {{ streamingAgent }}
         </div>
     </div>
 
@@ -50,6 +45,10 @@
 
     <div *ngIf="response?.explanation" class="alert alert-note">
         {{ response?.explanation }}
+    </div>
+
+    <div *ngIf="response?.nlSummary" class="alert alert-summary">
+        <strong>Summary:</strong> {{ response?.nlSummary }}
     </div>
 
     <div *ngIf="response && response.status === 'ok'" class="results-panel">

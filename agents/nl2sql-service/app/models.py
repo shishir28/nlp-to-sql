@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 
 class UserContext(BaseModel):
@@ -16,8 +16,8 @@ class Nl2SqlConstraints(BaseModel):
     default_limit: int = 50
     max_limit: int = 200
     select_only: bool = True
-    allowed_tables: list[str] = Field(default_factory=list)
-    allowed_functions: list[str] = Field(default_factory=list)
+    allowed_tables: List[str] = Field(default_factory=list)
+    allowed_functions: List[str] = Field(default_factory=list)
 
 
 class Nl2SqlGenerateRequest(BaseModel):
@@ -37,4 +37,17 @@ class Nl2SqlGenerateResponse(BaseModel):
     reasoning: str
     original_question: str
     detected_domain: Optional[str] = None
-    scoped_tables: list[str] = Field(default_factory=list)
+    scoped_tables: List[str] = Field(default_factory=list)
+
+
+class Nl2SqlSummarizeRequest(BaseModel):
+    """Request from .NET API to summarize executed query results in natural language"""
+    question: str
+    detected_domain: Optional[str] = None
+    row_count: int = 0
+    rows: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class Nl2SqlSummarizeResponse(BaseModel):
+    """Natural language summary of query results"""
+    nl_summary: str

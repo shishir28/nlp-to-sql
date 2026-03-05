@@ -14,6 +14,7 @@ export interface QueryResponse {
   explanation?: string;
   message?: string;
   errorCode?: string;
+  nlSummary?: string;
 }
 
 export interface NlQueryRequest {

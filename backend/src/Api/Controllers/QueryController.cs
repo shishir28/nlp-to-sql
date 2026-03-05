@@ -1,4 +1,7 @@
+using System.Net.Http.Json;
+using System.Text;
 using Application.Abstractions;
+using Contracts.Agent;
 using Contracts.Requests;
 using Contracts.Responses;
 using Microsoft.AspNetCore.Mvc;
@@ -64,6 +67,76 @@ public class QueryController : ControllerBase
                 Message = "Internal server error.",
                 ErrorCode = "INTERNAL_ERROR"
             });
+        }
+    }
+
+    /// <summary>
+    /// SSE streaming proxy: forwards the Python agent's SSE stream to the browser.
+    /// The Angular client connects here via fetch() and receives events:
+    ///   agent_start, sql_generated, validation_done, done, error
+    /// </summary>
+    [HttpPost("stream")]
+    public async Task StreamQuery(
+        [FromBody] NlQueryRequest request,
+        [FromServices] IHttpClientFactory httpClientFactory,
+        [FromServices] IConfiguration configuration,
+        [FromServices] ISchemaPolicyProvider policyProvider,
+        CancellationToken cancellationToken)
+    {
+        var customerId = User.FindFirst("customer_id")?.Value ?? "1";
+        var userId = User.FindFirst("sub")?.Value ?? "local-dev-user";
+        var role = User.FindFirst("role")?.Value ?? "PropertyManager";
+
+        Response.Headers["Content-Type"] = "text/event-stream";
+        Response.Headers["Cache-Control"] = "no-cache";
+        Response.Headers["X-Accel-Buffering"] = "no";
+
+        var agentBaseUrl = configuration["AgentService:BaseUrl"]
+            ?? "http://localhost:8000";
+        var streamEndpoint = $"{agentBaseUrl}/v1/nl2sql/stream";
+
+        var httpClient = httpClientFactory.CreateClient();
+        var policy = policyProvider.GetPolicy();
+
+        var agentRequest = new Nl2SqlGenerateRequest
+        {
+            Question = request.Question,
+            ConversationId = request.ConversationId,
+            Context = new UserContext { CustomerId = customerId, UserId = userId, Role = role },
+            Constraints = new Nl2SqlConstraints
+            {
+                Dialect = policy.Dialect,
+                TenantColumn = policy.TenantColumn,
+                DefaultLimit = policy.DefaultLimit,
+                MaxLimit = policy.MaxLimit,
+                SelectOnly = policy.SelectOnly,
+                AllowedTables = policy.AllowedTables,
+                AllowedFunctions = policy.AllowedFunctions
+            }
+        };
+
+        try
+        {
+            var upstreamResponse = await httpClient.PostAsJsonAsync(
+                streamEndpoint, agentRequest, cancellationToken);
+
+            upstreamResponse.EnsureSuccessStatusCode();
+
+            await using var upstreamStream = await upstreamResponse.Content.ReadAsStreamAsync(cancellationToken);
+            var buffer = new byte[4096];
+            int bytesRead;
+
+            while ((bytesRead = await upstreamStream.ReadAsync(buffer, cancellationToken)) > 0)
+            {
+                await Response.Body.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                await Response.Body.FlushAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SSE proxy error: {Message}", ex.Message);
+            var errorEvent = $"event: error\ndata: {{\"message\": \"{ex.Message}\"}}\n\n";
+            await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(errorEvent), cancellationToken);
         }
     }
 

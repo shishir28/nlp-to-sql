@@ -1,5 +1,97 @@
 {
     "domains": {
+        "vendor": {
+            "description": "Vendor and contractor management",
+            "keywords": [
+                "contractor",
+                "supplier",
+                "tradesperson",
+                "electrician",
+                "plumber",
+                "landscaper",
+                "service provider"
+            ],
+            "tables": [
+                "Vendors",
+                "MaintenanceJobs"
+            ],
+            "primary_table": "Vendors",
+            "reason": "Contractor/supplier terms map to Vendors table"
+        },
+        "property_portfolio": {
+            "description": "Property portfolio overview and vacancy tracking",
+            "keywords": [
+                "portfolio",
+                "vacancy",
+                "vacant",
+                "occupancy",
+                "unoccupied",
+                "available properties"
+            ],
+            "tables": [
+                "Properties",
+                "Tenancies",
+                "PropertyOwners",
+                "Owners"
+            ],
+            "primary_table": "Properties",
+            "reason": "Portfolio/vacancy terms map to Properties table"
+        },
+        "lease_renewal": {
+            "description": "Lease renewals and expiring tenancies",
+            "keywords": [
+                "renewal",
+                "renew",
+                "expiring",
+                "expiry",
+                "expire",
+                "up for renewal"
+            ],
+            "tables": [
+                "Tenancies",
+                "Tenants",
+                "Properties"
+            ],
+            "primary_table": "Tenancies",
+            "reason": "Renewal/expiry terms map to Tenancies.LeaseEndDate"
+        },
+        "compliance": {
+            "description": "Property compliance status and failed inspections",
+            "keywords": [
+                "non-compliant",
+                "compliance status",
+                "compliance report",
+                "failed inspection",
+                "compliance fail"
+            ],
+            "tables": [
+                "Inspections",
+                "Properties",
+                "Tenancies"
+            ],
+            "primary_table": "Inspections",
+            "reason": "Compliance terms map to Inspections.ComplianceStatus"
+        },
+        "financial_summary": {
+            "description": "Cross-portfolio financial summary and income reporting",
+            "keywords": [
+                "income summary",
+                "revenue",
+                "profit",
+                "gross income",
+                "net income",
+                "financial summary",
+                "total income",
+                "total payout"
+            ],
+            "tables": [
+                "OwnerStatements",
+                "Owners",
+                "RentLedgerEntries"
+            ],
+            "primary_table": "OwnerStatements",
+            "reason": "Financial summary terms map to OwnerStatements aggregates"
+        },
         "arrears": {
             "description": "Rent arrears and overdue payments",
             "keywords": [

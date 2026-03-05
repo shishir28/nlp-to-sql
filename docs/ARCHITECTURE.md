@@ -33,8 +33,9 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
 │  │ 3. Call Python agent for SQL candidate                      │ │
 │  │ 4. Run SQL Firewall (validate + inject tenant predicate)    │ │
 │  │ 5. Execute approved SQL with Dapper                          │ │
-│  │ 6. Audit log to console                                      │ │
-│  │ 7. Return QueryResponse (rows + explanation, no SQL)        │ │
+│  │ 6. Call Python summarizer for NL result summary (optional)  │ │
+│  │ 7. Audit log to console                                      │ │
+│  │ 8. Return QueryResponse (rows + explanation + summary)      │ │
 │  └────────────────────────────────────────────────────────────┘ │
 │                                                                   │
 │  Security Enforced Here:                                         │
@@ -57,16 +58,19 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
 │                             │  │                                │
 │  LangGraph State Machine:   │  │  Multi-tenant schema:          │
 │  ┌──────────────────────┐   │  │  • Customers (tenant root)     │
-│  │ route_domain         │   │  │  • Properties                  │
-│  ├──────────────────────┤   │  │  • Tenancies                   │
-│  │ schema_context       │   │  │  • RentLedgerEntries           │
+│  │ domain_classifier ──┐│   │  │  • Properties                  │
+│  │ schema_prefetch   ──┘│   │  │  • Tenancies                   │
+│  │   (parallel)         │   │  │  • RentLedgerEntries           │
 │  ├──────────────────────┤   │  │  • MaintenanceJobs             │
-│  │ planner              │   │  │  • Inspections                 │
+│  │ schema_analyzer      │   │  │  • Inspections                 │
 │  ├──────────────────────┤   │  │  • OwnerStatements             │
-│  │ should_clarify?      │   │  │                                │
-│  ├──────────────────────┤   │  │  All tenant tables have:       │
-│  │ sql_generator        │   │  │  • CustomerId column           │
-│  └──────────────────────┘   │  │  • Composite indexes           │
+│  │ sql_generator        │   │  │  • Vendors                     │
+│  ├──────────────────────┤   │  │  • Owners / OwnerStatements    │
+│  │ sql_validator        │   │  │                                │
+│  └──────────────────────┘   │  │  All tenant tables have:       │
+│                             │  │  • CustomerId column           │
+│  + /v1/nl2sql/summarize     │  │  • Composite indexes           │
+│  + /v1/nl2sql/stream (SSE)  │  │                                │
 │                             │  │                                │
 │  Returns:                   │  │  Migration: Flyway             │
 │  • sql_candidate (string)   │  │  Seeding: Bogus (10K+ rows)    │
@@ -124,8 +128,13 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
    │   └─▶ Dapper QueryAsync with parameters: { customerId: "1" }
    │   └─▶ Returns: (rows, columns, executionMs)
    │
-   └─▶ Step 5: Audit log
-       └─▶ ILogger: "AUDIT {...}"
+   ├─▶ Step 5: Audit log
+   │   └─▶ ILogger: "AUDIT {...}"
+   │
+   └─▶ Step 6: Summarization (best-effort)
+       └─▶ HTTP POST http://localhost:8000/v1/nl2sql/summarize
+           { question, detected_domain, row_count, rows[0..9] }
+       └─▶ Returns: { nl_summary: "3 tenancies are expiring..." }
 
 4. API returns QueryResponse:
    {
@@ -135,10 +144,11 @@ This is a **multi-tenant Australian Property Management NL→SQL analytics appli
      "executionMs": 245,
      "status": "ok",
      "explanation": "Ran a tenancy query ...",
-     "domain": "tenancy"
+     "domain": "tenancy",
+     "nlSummary": "3 tenancies are expiring in the next 30 days..."
    }
 
-5. Angular displays results table
+5. Angular displays results table + NL summary
 ```
 
 ## Security Model
@@ -256,12 +266,14 @@ Defined in `db/policy/schema-policy.json`:
   - Extract `customerId` from JWT claims (dev: hardcoded fallback)
   - Load schema policy from JSON file
   - Enforce MySQL-only dialect for execution pipeline
-  - Orchestrate 5-step pipeline:
+  - Orchestrate 6-step pipeline:
     1. Call Python agent for SQL candidate with policy constraints (`allowedTables`, `allowedFunctions`, limits)
     2. Check confidence/clarification
     3. Run SQL firewall (validate + rewrite)
     4. Execute approved SQL with Dapper + MySqlConnector
-    5. Audit log structured event + return NL explanation
+    5. Audit log structured event
+    6. Call Python summarizer (best-effort) and return `nlSummary` with rows
+  - Proxy SSE stream from Python agent to browser (`POST /api/query/stream`)
   - Return QueryResponse to frontend without SQL text
 - **Technology**: ASP.NET Core 8, Dapper, MySqlConnector
 - **Security**: Owns all secrets, enforces all rules
@@ -269,14 +281,17 @@ Defined in `db/policy/schema-policy.json`:
 ### Python Agent Service
 - **Purpose**: Natural language → SQL translation
 - **Responsibilities**:
-  - Parse user question
-  - Detect domain (arrears, tenancy, maintenance, etc.)
-  - Scope relevant tables
-  - Generate SQL using templates or LLM
-  - Validate request dialect compatibility (MySQL only)
-  - Return structured response with confidence + clarification prompt
-- **Technology**: FastAPI, LangGraph, Pydantic
-- **Security**: Stateless, no secrets, treated as untrusted
+  - Parse user question with multi-turn conversation history
+  - Detect domain (arrears, tenancy, maintenance, inspection, owner_statement, vendor, property_portfolio, lease_renewal, compliance, financial_summary)
+  - Scope relevant tables using real FK relationships from INFORMATION_SCHEMA
+  - Run parallel agents: `domain_classifier` + `schema_prefetch` concurrently
+  - Generate SQL using templates (template mode) or LLM (LLM mode)
+  - Validate and auto-correct SQL candidate
+  - Summarize result rows in natural language (`/v1/nl2sql/summarize`)
+  - Stream agent progress via SSE (`/v1/nl2sql/stream`)
+  - Persist conversation turns in Redis (or in-memory fallback)
+- **Technology**: FastAPI, LangGraph, Pydantic, Redis
+- **Security**: Stateless, no DB credentials, treated as untrusted
 
 ### MySQL Database
 - **Purpose**: Multi-tenant data storage
@@ -338,9 +353,10 @@ Database: Azure Database for MySQL / RDS / Cloud SQL
 ## Extension Points
 
 ### Adding New Domains
-1. Add keywords to `agents/nl2sql-service/app/graph.py` route_domain()
-2. Add SQL template to sql_generator()
-3. Add domain-specific tables to scoped_tables mapping
+1. Add keywords and table list to `agents/nl2sql-service/domain-mapping.json`
+2. Add SQL template to `agents/nl2sql-service/app/graph.py` `sql_templates` dict
+3. Add new value to `Domain` enum in `agents/nl2sql-service/app/state_models.py`
+4. LLM mode picks up new domains automatically via the domain-mapping.json keywords
 
 ### Adding New Tables
 1. Create Flyway migration: `db/migrations/V3__add_new_table.sql`

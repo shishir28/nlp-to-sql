@@ -72,3 +72,44 @@ public sealed class Nl2SqlAgentClient : INl2SqlAgentClient
         };
     }
 }
+
+/// <summary>
+/// HTTP client for Python result summarization endpoint
+/// </summary>
+public sealed class SummarizationClient : ISummarizationClient
+{
+    private readonly HttpClient _httpClient;
+    private readonly string _baseUrl;
+    private readonly ILogger<SummarizationClient> _logger;
+
+    public SummarizationClient(
+        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration,
+        ILogger<SummarizationClient> logger)
+    {
+        _httpClient = httpClientFactory.CreateClient("Nl2SqlAgent");
+        _baseUrl = configuration["AgentService:BaseUrl"]
+            ?? throw new InvalidOperationException("AgentService:BaseUrl not configured");
+        _logger = logger;
+    }
+
+    public async Task<string?> SummarizeAsync(Nl2SqlSummarizeRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var endpoint = $"{_baseUrl}/v1/nl2sql/summarize";
+            _logger.LogInformation("Calling summarization service: {Endpoint}", endpoint);
+
+            var response = await _httpClient.PostAsJsonAsync(endpoint, request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<Nl2SqlSummarizeResponse>(cancellationToken: cancellationToken);
+            return result?.NlSummary;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Summarization service error (non-fatal): {Message}", ex.Message);
+            return null; // Summarization is best-effort — don't fail the main response
+        }
+    }
+}

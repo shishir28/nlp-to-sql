@@ -9,44 +9,67 @@ This system supports two modes:
 ### LLM Multi-Agent Pipeline
 
 ```
-User Question
-     ↓
-[Agent 1: Domain Classifier]
-     ↓ (Domain + Tables)
-[Agent 2: Schema Analyzer]
-     ↓ (Query Plan)
-[Agent 3: SQL Generator]
-     ↓ (SQL Candidate)
-[Agent 4: SQL Validator]
-     ↓ (Validated SQL)
+User Question + Conversation History
+         ↓
+   ┌─────┴──────┐   ← parallel fan-out
+   ↓            ↓
+[Agent 1:    [Agent P:
+ Domain       Schema
+ Classifier]  Prefetch]   ← warms FK cache from INFORMATION_SCHEMA
+   ↓            ↓
+   └─────┬──────┘   ← fan-in
+         ↓
+[Agent 2: Schema Analyzer]    ← uses prefetched FK map
+         ↓ (Query Plan)
+[Agent 3: SQL Generator]      ← injects conversation history
+         ↓ (SQL Candidate)
+[Agent 4: SQL Validator]      ← auto-corrects issues
+         ↓ (Validated SQL)
 (.NET firewall + MySQL execution)
-     ↓
-NL Results + Explanation (UI)
+         ↓
+[Agent 5: Result Summarizer]  ← NL summary of returned rows
+         ↓
+NL Results + Summary + Explanation (UI)
 ```
 
 ### Agent Responsibilities
 
+P. **Schema Prefetch Agent** *(runs in parallel with Domain Classifier)*
+   - Queries `INFORMATION_SCHEMA.KEY_COLUMN_USAGE` to discover real FK relationships
+   - Warms the FK cache (TTL: `SCHEMA_CACHE_TTL` seconds, default 300)
+   - Falls back silently if DB unavailable
+   - Outputs: `prefetched_fk_map`
+
 1. **Domain Classifier Agent**
    - Uses LLM to classify question into business domain
+   - Injects prior conversation turns as context for follow-up questions
    - Identifies relevant tables using semantic understanding
-   - Outputs: domain, confidence, scoped_tables
+   - Outputs: `detected_domain`, `domain_confidence`, `scoped_tables`
+   - Domains: `arrears`, `tenancy`, `maintenance`, `inspection`, `owner_statement`, `vendor`, `property_portfolio`, `lease_renewal`, `compliance`, `financial_summary`
 
 2. **Schema Analyzer Agent**
-   - Creates detailed query plan
+   - Creates detailed query plan using real FK relationships from prefetch
    - Identifies JOINs, filters, aggregations
    - Handles temporal logic (past/future)
-   - Outputs: query_plan, schema_description
+   - Outputs: `query_plan`, `schema_description`
 
 3. **SQL Generator Agent**
    - Generates SQL from query plan
+   - Injects conversation history for multi-turn context
    - Follows MySQL 8.4 syntax
-   - Outputs: sql_candidate
+   - Outputs: `sql_candidate`
 
 4. **SQL Validator Agent**
    - Reviews generated SQL for correctness
-   - Checks logic, syntax, performance
-   - May revise SQL if issues found
-   - Outputs: confidence, validation_notes, revised_sql
+   - Auto-corrects fixable issues (missing JOINs, syntax errors)
+   - Only requests clarification for genuinely ambiguous questions
+   - Outputs: `confidence`, `validation_notes`, `revised_sql`
+
+5. **Result Summarizer** *(called by .NET after SQL execution)*
+   - Receives actual result rows from .NET orchestrator
+   - Generates 1-3 sentence plain English summary
+   - Exposed as a separate endpoint: `POST /v1/nl2sql/summarize`
+   - Best-effort: errors produce a count-based fallback, never break the response
 
 ## Execution Constraints
 
@@ -166,6 +189,12 @@ curl -X POST http://localhost:5000/api/query \
 | `OPENAI_TEMPERATURE` | `0.1` | Temperature (0.0-1.0) |
 | `USE_LOCAL_LLM` | `false` | Use local Ollama instead |
 | `LOCAL_LLM_MODEL` | `llama3.1:8b` | Local model name |
+| `DB_HOST` | `localhost` | MySQL host for schema introspection |
+| `DB_PORT` | `3306` | MySQL port |
+| `DB_NAME` | `propertydb` | Database name |
+| `DB_USER` | `app` | DB user for INFORMATION_SCHEMA reads |
+| `DB_PASSWORD` | - | DB password |
+| `SCHEMA_CACHE_TTL` | `300` | Seconds to cache FK map from INFORMATION_SCHEMA |
 
 ## Cost Estimation
 
@@ -218,9 +247,20 @@ If LLM fails (API error, timeout), system automatically falls back to templates 
 5. Tenant filtering still enforced by .NET firewall
 6. SQL firewall enforces allowlists, join depth, and limit capping before execution
 
+## Additional Features
+
+### Multi-Turn Conversation Memory
+Conversation history is stored in Redis (with in-memory fallback) keyed by `conversation_id`. Each turn (question + clarification + SQL) is persisted and injected into subsequent agent prompts, enabling follow-up questions like "now filter by rent below $500".
+
+### SSE Streaming
+The agent exposes `POST /v1/nl2sql/stream` which returns a `text/event-stream` response emitting one event per agent stage (`agent_start`, `sql_generated`, `validation_done`, `done`, `error`). The Angular client subscribes using `fetch()` + `ReadableStream` and shows a live pulsing status label during query processing.
+
+### Real Schema Introspection
+When `DB_*` env vars are configured, the `InformationSchemaClient` queries `INFORMATION_SCHEMA.KEY_COLUMN_USAGE` for real FK relationships instead of using fuzzy string matching. Results are cached for `SCHEMA_CACHE_TTL` seconds. Falls back gracefully to heuristics when DB is unreachable.
+
 ## Next Steps
 
 - [ ] Implement RAG for schema documentation
-- [ ] Add query cache to reduce API calls
 - [ ] Implement batch processing for multiple queries
 - [ ] Add custom fine-tuned models for domain-specific SQL
+- [ ] Prompt A/B testing using existing PromptLibrary version scanning

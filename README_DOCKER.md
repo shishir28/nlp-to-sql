@@ -4,13 +4,14 @@ This guide explains how to deploy the entire NLP-to-SQL system using Docker Comp
 
 ## Architecture Overview
 
-The Docker deployment consists of 5 services:
+The Docker deployment consists of 6 services:
 
 1. **MySQL 8.4** - Database server (port 3306)
-2. **Adminer** - Web-based database management tool (port 8080)
-3. **Python Agent** - LangGraph NL-to-SQL service (port 8000)
-4. **ASP.NET Core API** - Backend API with security enforcement (port 5000)
-5. **Angular Frontend** - User interface with nginx (port 4200)
+2. **Redis 7** - Conversation store + query result cache (port 6379)
+3. **Adminer** - Web-based database management tool (port 8080)
+4. **Python Agent** - LangGraph NL-to-SQL service with SSE streaming (port 8000)
+5. **ASP.NET Core API** - Backend API with security enforcement (port 5000)
+6. **Angular Frontend** - User interface with nginx (port 4200)
 
 All services are connected via a Docker bridge network (`nlp2sql-network`) and use container-to-container communication.
 
@@ -42,11 +43,12 @@ This will:
 docker compose ps
 ```
 
-You should see all 5 services running and healthy:
+You should see all 6 services running and healthy:
 
 ```
 NAME                IMAGE                    STATUS
 nlp2sql-mysql       mysql:8.4                Up (healthy)
+nlp2sql-redis       redis:7-alpine           Up (healthy)
 nlp2sql-adminer     adminer:4                Up
 nlp2sql-agent       db_agent                 Up (healthy)
 nlp2sql-api         db_api                   Up (healthy)
@@ -84,7 +86,7 @@ flyway -configFiles=db/flyway.conf migrate
 ### Service Dependencies
 
 ```
-mysql (healthy) → adminer + agent (healthy) → api (healthy) → frontend
+mysql (healthy) + redis (healthy) → adminer + agent (healthy) → api (healthy) → frontend
 ```
 
 Health checks ensure services start in the correct order:
@@ -93,6 +95,25 @@ Health checks ensure services start in the correct order:
 - API must be healthy before frontend starts
 
 ### Environment Variables
+
+#### Agent Service
+
+```yaml
+PYTHONUNBUFFERED=1
+REDIS_URL=redis://redis:6379          # Conversation store + query cache
+# Schema introspection (queries INFORMATION_SCHEMA for real FK relationships)
+DB_HOST=mysql
+DB_PORT=3306
+DB_NAME=property_analytics
+DB_USER=app_user
+DB_PASSWORD=app_pass_secure
+SCHEMA_CACHE_TTL=300                  # Seconds to cache FK map
+# LLM mode (optional)
+USE_LLM_AGENTS=false                  # Set to true to enable LLM agents
+OPENAI_API_KEY=sk-...                 # Required if USE_LLM_AGENTS=true
+```
+
+Note: DB_* variables allow the agent's `InformationSchemaClient` to discover real foreign-key relationships from `INFORMATION_SCHEMA.KEY_COLUMN_USAGE`. If the DB is unreachable, the agent falls back to fuzzy table-name matching automatically.
 
 #### API Service
 
@@ -371,8 +392,7 @@ All services use the parent directory (`..`) as build context to share the polic
 services:
   api:
     build:
-      context: ..              # nlp-to-sql/
-      context: .               # nlp-to-sql/ (root)
+      context: .               # nlp-to-sql/ (repo root)
       dockerfile: backend/Dockerfile
 ```
 

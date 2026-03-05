@@ -63,7 +63,16 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379
+      # Schema introspection — connects to MySQL INFORMATION_SCHEMA
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=property_analytics
+      - DB_USER=app_user
+      - DB_PASSWORD=app_pass_secure
+      - SCHEMA_CACHE_TTL=300
     depends_on:
+      mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:

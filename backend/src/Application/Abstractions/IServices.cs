@@ -28,6 +28,16 @@ public interface INl2SqlAgentClient
 }
 
 /// <summary>
+/// Client for Python result summarization service
+/// </summary>
+public interface ISummarizationClient
+{
+    Task<string?> SummarizeAsync(
+        Nl2SqlSummarizeRequest request,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// Provides schema policy from JSON configuration
 /// </summary>
 public interface ISchemaPolicyProvider

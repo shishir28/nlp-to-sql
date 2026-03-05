@@ -165,6 +165,36 @@
     border-left: 4px solid #718096;
     font-weight: 400;
   }
+
+  &-summary {
+    background: #e6fffa;
+    color: #234e52;
+    border-left: 4px solid #38a169;
+    font-weight: 400;
+  }
+}
+
+.streaming-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: #667eea;
+  font-weight: 500;
+
+  .streaming-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #667eea;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
 }
 
 .results-panel {

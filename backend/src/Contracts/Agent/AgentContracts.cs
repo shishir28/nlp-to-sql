@@ -87,6 +87,33 @@ public sealed class Nl2SqlGenerateResponse
 }
 
 /// <summary>
+/// Request to Python agent service to summarize executed query results
+/// </summary>
+public sealed class Nl2SqlSummarizeRequest
+{
+    [JsonPropertyName("question")]
+    public string Question { get; init; } = string.Empty;
+
+    [JsonPropertyName("detected_domain")]
+    public string? DetectedDomain { get; init; }
+
+    [JsonPropertyName("row_count")]
+    public int RowCount { get; init; }
+
+    [JsonPropertyName("rows")]
+    public IReadOnlyList<Dictionary<string, object?>> Rows { get; init; } = Array.Empty<Dictionary<string, object?>>();
+}
+
+/// <summary>
+/// Natural language summary of query results from Python agent service
+/// </summary>
+public sealed class Nl2SqlSummarizeResponse
+{
+    [JsonPropertyName("nl_summary")]
+    public string NlSummary { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// SQL firewall validation result
 /// </summary>
 public sealed class FirewallResult

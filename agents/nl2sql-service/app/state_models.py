@@ -10,10 +10,15 @@ from enum import Enum
 class Domain(str, Enum):
     """Business domain categories for queries"""
     TENANCY = "tenancy"
-    ARREARS = "arrears"  
+    ARREARS = "arrears"
     MAINTENANCE = "maintenance"
     INSPECTION = "inspection"
     OWNER_STATEMENT = "owner_statement"
+    VENDOR = "vendor"
+    PROPERTY_PORTFOLIO = "property_portfolio"
+    LEASE_RENEWAL = "lease_renewal"
+    COMPLIANCE = "compliance"
+    FINANCIAL_SUMMARY = "financial_summary"
     GENERAL = "general"
 
 
@@ -65,6 +70,12 @@ class LLMAgentState(BaseModel):
     agent_route: Optional[str] = Field(None, description="Selected agent execution path")
     prompt_version: str = Field(default="v1", description="Prompt template version used")
     schema_version: str = Field(default="1.0", description="Database schema version")
+
+    # ===== Parallel Prefetch =====
+    prefetched_fk_map: Dict[str, Any] = Field(default_factory=dict, description="FK map prefetched in parallel")
+
+    # ===== Conversation Memory =====
+    conversation_history: List[Dict[str, Any]] = Field(default_factory=list, description="Prior turns in this conversation")
     
     @field_validator('question')
     @classmethod
