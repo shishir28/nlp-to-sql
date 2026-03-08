@@ -532,22 +532,21 @@ def schema_prefetch_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         if introspector._info_schema is not None:
             fk_map = introspector._info_schema._load_fk_map()
             prefetched = {t: fk_map.get(t, []) for t in allowed_tables}
-            state["prefetched_fk_map"] = prefetched
             logger.info(f"[Schema Prefetch] FK map warmed for {len(prefetched)} tables")
         else:
-            state["prefetched_fk_map"] = {}
+            prefetched = {}
             logger.info("[Schema Prefetch] DB unavailable, skipping FK prefetch")
 
         if metric:
             metric.complete(success=True)
 
+        return {"prefetched_fk_map": prefetched}
+
     except Exception as e:
         logger.warning(f"[Schema Prefetch] Failed: {e}")
-        state["prefetched_fk_map"] = {}
         if metric:
             metric.complete(success=False, error=str(e))
-
-    return state
+        return {"prefetched_fk_map": {}}
 
 
 def domain_classifier_agent(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -568,14 +567,15 @@ def domain_classifier_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("[Domain Classifier] Using template-based fallback (no LLM)")
         introspector = get_introspector()
         domain_info = introspector.get_table_info_for_question(
-            state["question"], 
+            state["question"],
             state["allowed_tables"]
         )
-        state["detected_domain"] = domain_info["domain"]
-        state["domain_confidence"] = domain_info.get("confidence", 0.7)
-        state["reasoning"] = f"Template-based: {domain_info['reason']}"
-        logger.info(f"[Domain Classifier] Result: domain={domain_info['domain']}, confidence={state['domain_confidence']}")
-        return state
+        logger.info(f"[Domain Classifier] Result: domain={domain_info['domain']}, confidence={domain_info.get('confidence', 0.7)}")
+        return {
+            "detected_domain": domain_info["domain"],
+            "domain_confidence": domain_info.get("confidence", 0.7),
+            "reasoning": f"Template-based: {domain_info['reason']}",
+        }
     
     # LLM-based domain classification
     system_prompt = """You are a domain classification expert for a property management system.
@@ -618,30 +618,33 @@ Classify the domain and identify relevant tables. Only use the listed available 
             "reasoning": "JSON parse failed"
         })
         
-        state["detected_domain"] = result.get("domain", "general")
-        state["domain_confidence"] = result.get("confidence", 0.5)
-        state["scoped_tables"] = [t for t in result.get("tables", []) if t in state["allowed_tables"]]
-        state["reasoning"] = f"LLM Classification: {result.get('reasoning', 'No reasoning provided')}"
-        
-        logger.info(f"[Domain Classifier] LLM result: domain={state['detected_domain']}, "
-                   f"confidence={state['domain_confidence']:.2f}, tables={state['scoped_tables']}")
-        
-        # Phase 2: Complete metrics on success
+        detected_domain = result.get("domain", "general")
+        domain_confidence = result.get("confidence", 0.5)
+        scoped_tables = [t for t in result.get("tables", []) if t in state["allowed_tables"]]
+        reasoning = f"LLM Classification: {result.get('reasoning', 'No reasoning provided')}"
+
+        logger.info(f"[Domain Classifier] LLM result: domain={detected_domain}, "
+                   f"confidence={domain_confidence:.2f}, tables={scoped_tables}")
+
         if metric:
             metric.complete(success=True)
-        
+
+        return {
+            "detected_domain": detected_domain,
+            "domain_confidence": domain_confidence,
+            "scoped_tables": scoped_tables,
+            "reasoning": reasoning,
+        }
+
     except Exception as e:
-        # Fallback on error
         logger.error(f"[Domain Classifier] LLM invocation failed: {str(e)}", exc_info=True)
-        state["detected_domain"] = "general"
-        state["domain_confidence"] = 0.5
-        state["reasoning"] = f"LLM error, using fallback: {str(e)}"
-        
-        # Phase 2: Complete metrics on failure
         if metric:
             metric.complete(success=False, error=str(e))
-    
-    return state
+        return {
+            "detected_domain": "general",
+            "domain_confidence": 0.5,
+            "reasoning": f"LLM error, using fallback: {str(e)}",
+        }
 
 
 def schema_analyzer_agent(state: Dict[str, Any]) -> Dict[str, Any]:

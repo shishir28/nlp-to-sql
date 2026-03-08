@@ -1,85 +1,120 @@
-<div class="container">
-    <header class="header">
-        <h1>Property Analytics - NL to SQL</h1>
-        <p class="subtitle">Ask questions about your properties in natural language</p>
-    </header>
+<div class="pm-shell">
 
-    <div class="example-queries">
-        <span class="example-label">Examples:</span>
-        <button class="example-btn" *ngFor="let ex of examples" (click)="loadExample(ex.query)">
-            {{ ex.label }}
+  <!-- Top Navigation Bar -->
+  <header class="pm-topbar">
+    <div class="pm-topbar__brand">
+      <svg class="pm-topbar__logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="6" fill="#1e7dc8"/>
+        <path d="M16 6L6 13v13h7v-8h6v8h7V13L16 6z" fill="white"/>
+      </svg>
+      <span class="pm-topbar__title">Property Analytics</span>
+    </div>
+    <div class="pm-topbar__subtitle">Natural Language Query</div>
+  </header>
+
+  <!-- Page Content -->
+  <main class="pm-content">
+    <div class="pm-page-header">
+      <h1 class="pm-page-title">Property Query Assistant</h1>
+      <p class="pm-page-desc">Ask questions about your portfolio in plain English</p>
+    </div>
+
+    <!-- Example Queries Card -->
+    <div class="pm-card pm-card--examples">
+      <div class="pm-card__label">Quick examples</div>
+      <div class="pm-examples">
+        <button class="pm-example-btn" *ngFor="let ex of examples" (click)="loadExample(ex.query)">
+          {{ ex.label }}
         </button>
+      </div>
     </div>
 
-    <div class="query-panel">
-        <textarea [(ngModel)]="question"
-            placeholder="Ask a question about your properties... e.g., 'Show active tenancies ending in next 60 days'"
-            class="query-input" rows="3" [disabled]="loading">
-        </textarea>
+    <!-- Query Input Card -->
+    <div class="pm-card">
+      <label class="pm-label">Your question</label>
+      <textarea
+        [(ngModel)]="question"
+        placeholder="e.g. Show active tenancies ending in the next 60 days"
+        class="pm-textarea"
+        rows="3"
+        [disabled]="loading">
+      </textarea>
 
-        <div class="button-group">
-            <button (click)="runQuery()" [disabled]="loading || !question.trim()" class="btn btn-primary">
-                {{ loading ? 'Processing...' : 'Run Query' }}
-            </button>
-            <button (click)="clearResults()" [disabled]="loading || (!response && !error)" class="btn btn-secondary">
-                Clear
-            </button>
+      <div class="pm-actions">
+        <button (click)="runQuery()" [disabled]="loading || !question.trim()" class="pm-btn pm-btn--primary">
+          <span *ngIf="!loading">Run Query</span>
+          <span *ngIf="loading" class="pm-btn__loading">
+            <span class="pm-spinner"></span> Processing…
+          </span>
+        </button>
+        <button (click)="clearResults()" [disabled]="loading || (!response && !error)" class="pm-btn pm-btn--default">
+          Clear
+        </button>
+        <div *ngIf="loading && streamingAgent" class="pm-stream-status">
+          <span class="pm-stream-dot"></span>
+          {{ streamingAgent }}
         </div>
+      </div>
+    </div>
 
-        <div *ngIf="loading && streamingAgent" class="streaming-status">
-            <span class="streaming-dot"></span> {{ streamingAgent }}
+    <!-- Alerts -->
+    <div *ngIf="error" class="pm-alert pm-alert--danger">
+      <span class="pm-alert__icon">&#9888;</span>
+      <div><strong>Error:</strong> {{ error }}</div>
+    </div>
+
+    <div *ngIf="response?.message && isClarificationResponse()" class="pm-alert pm-alert--info">
+      <span class="pm-alert__icon">&#9432;</span>
+      <div><strong>Need more detail:</strong> {{ response?.message }}</div>
+    </div>
+
+    <div *ngIf="response?.message && response?.status !== 'ok' && !isClarificationResponse()" class="pm-alert pm-alert--warning">
+      <span class="pm-alert__icon">&#9888;</span>
+      <div>{{ response?.message }}</div>
+    </div>
+
+    <div *ngIf="response?.explanation" class="pm-alert pm-alert--note">
+      <span class="pm-alert__icon">&#128221;</span>
+      <div>{{ response?.explanation }}</div>
+    </div>
+
+    <div *ngIf="response?.nlSummary" class="pm-alert pm-alert--success">
+      <span class="pm-alert__icon">&#10003;</span>
+      <div><strong>Summary:</strong> {{ response?.nlSummary }}</div>
+    </div>
+
+    <!-- Results Card -->
+    <div *ngIf="response && response.status === 'ok'" class="pm-card pm-card--results">
+      <div class="pm-results-header">
+        <h2 class="pm-results-title">Results</h2>
+        <div class="pm-badges">
+          <span class="pm-badge">{{ response.rowCount }} rows</span>
+          <span class="pm-badge" *ngIf="response.executionMs">{{ response.executionMs }}ms</span>
+          <span class="pm-badge pm-badge--primary" *ngIf="response.domain">{{ response.domain }}</span>
         </div>
+      </div>
+
+      <div *ngIf="response.rows && response.rows.length > 0" class="pm-table-wrap">
+        <table class="pm-table">
+          <thead>
+            <tr>
+              <th *ngFor="let col of getColumnKeys()">{{ col }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let row of response.rows">
+              <td *ngFor="let col of getColumnKeys()">
+                {{ row[col] !== null && row[col] !== undefined ? row[col] : '—' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div *ngIf="!response.rows || response.rows.length === 0" class="pm-empty">
+        No results found for this query.
+      </div>
     </div>
+  </main>
 
-    <div *ngIf="error" class="alert alert-error">
-        <strong>Error:</strong> {{ error }}
-    </div>
-
-    <div *ngIf="response?.message && isClarificationResponse()" class="alert alert-info">
-        <strong>Need more detail:</strong> {{ response?.message }}
-    </div>
-
-    <div *ngIf="response?.message && response?.status !== 'ok' && !isClarificationResponse()" class="alert alert-warning">
-        {{ response?.message }}
-    </div>
-
-    <div *ngIf="response?.explanation" class="alert alert-note">
-        {{ response?.explanation }}
-    </div>
-
-    <div *ngIf="response?.nlSummary" class="alert alert-summary">
-        <strong>Summary:</strong> {{ response?.nlSummary }}
-    </div>
-
-    <div *ngIf="response && response.status === 'ok'" class="results-panel">
-        <div class="results-header">
-            <h2>Results</h2>
-            <div class="results-meta">
-                <span class="meta-item">{{ response.rowCount }} rows</span>
-                <span class="meta-item" *ngIf="response.executionMs">{{ response.executionMs }}ms</span>
-                <span class="meta-item" *ngIf="response.domain">{{ response.domain }}</span>
-            </div>
-        </div>
-
-        <div *ngIf="response.rows && response.rows.length > 0" class="table-container">
-            <table class="results-table">
-                <thead>
-                    <tr>
-                        <th *ngFor="let col of getColumnKeys()">{{ col }}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr *ngFor="let row of response.rows">
-                        <td *ngFor="let col of getColumnKeys()">
-                            {{ row[col] !== null && row[col] !== undefined ? row[col] : '-' }}
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div *ngIf="!response.rows || response.rows.length === 0" class="no-results">
-            No results found
-        </div>
-    </div>
 </div>
