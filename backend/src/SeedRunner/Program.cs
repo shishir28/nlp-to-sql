@@ -5,10 +5,11 @@ using SeedRunner.Seeding;
 Console.WriteLine("🌱 Property Analytics Database Seeder");
 Console.WriteLine("=====================================\n");
 
-// Load configuration
+// Load configuration (env vars override appsettings.json for Docker)
 var configuration = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
-    .AddJsonFile("appsettings.json", optional: false)
+    .AddJsonFile("appsettings.json", optional: true)
+    .AddEnvironmentVariables()
     .Build();
 
 var connectionString = configuration.GetConnectionString("MySql")

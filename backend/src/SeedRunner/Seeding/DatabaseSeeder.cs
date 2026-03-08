@@ -316,17 +316,34 @@ public class DatabaseSeeder
         var tenancyIds = new List<int>();
         var statuses = new[] { "ACTIVE", "ACTIVE", "ACTIVE", "ENDED", "ENDED" }; // 60% active
         var frequencies = new[] { "Weekly", "Weekly", "Fortnightly", "Monthly" };
+        // Lease end months spread across next 6 months for lease renewal queries
+        var upcomingLeaseEndMonths = new[] { 1, 2, 2, 3, 3, 4, 5, 6 };
 
         for (int i = 0; i < _options.TenanciesPerCustomer; i++)
         {
             var propertyId = faker.PickRandom(propertyIds);
             var tenantId = faker.PickRandom(tenantIds);
-            var status = faker.PickRandom(statuses);
             var frequency = faker.PickRandom(frequencies);
 
-            var startDate = faker.Date.Past(1);
-            var leaseDuration = faker.Random.Int(6, 12);
-            var leaseEndDate = startDate.AddMonths(leaseDuration);
+            DateTime startDate;
+            DateTime leaseEndDate;
+            string status;
+
+            if (i < 8)
+            {
+                // Guarantee 8 ACTIVE tenancies with lease end dates in the next 1–6 months
+                status = "ACTIVE";
+                startDate = faker.Date.Past(2);
+                leaseEndDate = DateTime.UtcNow.AddMonths(upcomingLeaseEndMonths[i]).Date;
+            }
+            else
+            {
+                status = faker.PickRandom(statuses);
+                startDate = faker.Date.Past(1);
+                var leaseDuration = faker.Random.Int(6, 12);
+                leaseEndDate = startDate.AddMonths(leaseDuration);
+            }
+
             var endDate = status == "ENDED" ? leaseEndDate.AddDays(faker.Random.Int(-30, 30)) : (DateTime?)null;
 
             var rentPerWeek = faker.Random.Int(300, 800);
@@ -362,10 +379,14 @@ public class DatabaseSeeder
     private static async Task SeedRentLedgerEntries(MySqlConnection connection, int customerId, List<int> tenancyIds, Faker faker)
     {
         var count = 0;
-        foreach (var tenancyId in tenancyIds)
+        // Guarantee at least 5 tenancies (or 1/3 of all) have arrears so arrears queries always return data
+        var guaranteedArrearsCount = Math.Max(5, tenancyIds.Count / 3);
+
+        for (int t = 0; t < tenancyIds.Count; t++)
         {
-            // 20% chance of arrears
-            var hasArrears = faker.Random.Bool(0.2f);
+            var tenancyId = tenancyIds[t];
+            // First N tenancies guaranteed arrears; rest have 20% random chance
+            var hasArrears = t < guaranteedArrearsCount || faker.Random.Bool(0.2f);
             var entries = faker.Random.Int(3, 12);
 
             for (int i = 0; i < entries; i++)
@@ -485,22 +506,82 @@ public class DatabaseSeeder
     {
         var count = 0;
         var types = new[] { "Routine", "Entry", "Exit", "Compliance" };
-        var complianceStatuses = new[] { "PENDING", "COMPLETED", "FAILED" };
+        // Weighted so completed past inspections produce realistic mix of PASS/FAIL/PENDING
+        var completedStatuses = new[] { "PASS", "PASS", "PASS", "FAIL", "FAIL", "PENDING" };
 
+        // --- Guaranteed block: 6 FAIL + 6 PASS compliance inspections with past dates ---
+        var failNotes = new[]
+        {
+            "Smoke alarm not functioning", "Pool fence non-compliant", "Electrical hazard detected",
+            "Gas leak identified", "Mould infestation found", "Emergency exit blocked"
+        };
+        for (int i = 0; i < 6 && i < propertyIds.Count; i++)
+        {
+            var scheduledDate = DateTime.UtcNow.AddDays(-faker.Random.Int(7, 180));
+            var completedDate = scheduledDate.AddDays(faker.Random.Int(0, 3));
+            await connection.ExecuteAsync(@"
+                INSERT INTO Inspections (CustomerId, PropertyId, TenancyId, InspectionType, ScheduledDate,
+                    CompletedDate, ComplianceStatus, Notes, InspectorName, CreatedAtUtc)
+                VALUES (@CustomerId, @PropertyId, @TenancyId, @InspectionType, @ScheduledDate,
+                    @CompletedDate, @ComplianceStatus, @Notes, @InspectorName, @CreatedAtUtc)",
+                new
+                {
+                    CustomerId = customerId,
+                    PropertyId = propertyIds[i],
+                    TenancyId = faker.PickRandom(tenancyIds),
+                    InspectionType = "Compliance",
+                    ScheduledDate = scheduledDate,
+                    CompletedDate = (DateTime?)completedDate,
+                    ComplianceStatus = "FAIL",
+                    Notes = failNotes[i],
+                    InspectorName = faker.Name.FullName(),
+                    CreatedAtUtc = scheduledDate.ToUniversalTime()
+                });
+            count++;
+        }
+        for (int i = 0; i < 6 && i < propertyIds.Count; i++)
+        {
+            var idx = Math.Min(i + 6, propertyIds.Count - 1);
+            var scheduledDate = DateTime.UtcNow.AddDays(-faker.Random.Int(7, 120));
+            var completedDate = scheduledDate.AddDays(faker.Random.Int(0, 2));
+            await connection.ExecuteAsync(@"
+                INSERT INTO Inspections (CustomerId, PropertyId, TenancyId, InspectionType, ScheduledDate,
+                    CompletedDate, ComplianceStatus, Notes, InspectorName, CreatedAtUtc)
+                VALUES (@CustomerId, @PropertyId, @TenancyId, @InspectionType, @ScheduledDate,
+                    @CompletedDate, @ComplianceStatus, @Notes, @InspectorName, @CreatedAtUtc)",
+                new
+                {
+                    CustomerId = customerId,
+                    PropertyId = propertyIds[idx],
+                    TenancyId = faker.PickRandom(tenancyIds),
+                    InspectionType = faker.PickRandom(new[] { "Routine", "Compliance" }),
+                    ScheduledDate = scheduledDate,
+                    CompletedDate = (DateTime?)completedDate,
+                    ComplianceStatus = "PASS",
+                    Notes = faker.Lorem.Sentence(),
+                    InspectorName = faker.Name.FullName(),
+                    CreatedAtUtc = scheduledDate.ToUniversalTime()
+                });
+            count++;
+        }
+
+        // --- Random block: mix of past (completed) and future (pending) ---
         foreach (var propertyId in propertyIds.Take(faker.Random.Int(8, 15)))
         {
             for (int i = 0; i < faker.Random.Int(1, 3); i++)
             {
                 var tenancyId = faker.PickRandom(tenancyIds);
-                var scheduledDate = faker.Date.Future(90);
-                var isCompleted = scheduledDate < DateTime.Now;
-                var complianceStatus = isCompleted ? faker.PickRandom(complianceStatuses) : "PENDING";
+                // 50% past, 50% future — fixes the "always PENDING" bug
+                var usePastDate = faker.Random.Bool(0.5f);
+                var scheduledDate = usePastDate ? faker.Date.Past(180) : faker.Date.Future(90);
+                var isCompleted = scheduledDate < DateTime.UtcNow;
+                var complianceStatus = isCompleted ? faker.PickRandom(completedStatuses) : "PENDING";
                 var completedDate = isCompleted ? scheduledDate.AddDays(faker.Random.Int(0, 2)) : (DateTime?)null;
 
                 await connection.ExecuteAsync(@"
-                    INSERT INTO Inspections (CustomerId, PropertyId, TenancyId, InspectionType, ScheduledDate, 
+                    INSERT INTO Inspections (CustomerId, PropertyId, TenancyId, InspectionType, ScheduledDate,
                         CompletedDate, ComplianceStatus, Notes, InspectorName, CreatedAtUtc)
-                    VALUES (@CustomerId, @PropertyId, @TenancyId, @InspectionType, @ScheduledDate, 
+                    VALUES (@CustomerId, @PropertyId, @TenancyId, @InspectionType, @ScheduledDate,
                         @CompletedDate, @ComplianceStatus, @Notes, @InspectorName, @CreatedAtUtc)",
                     new
                     {
@@ -518,7 +599,7 @@ public class DatabaseSeeder
                 count++;
             }
         }
-        Console.WriteLine($"    ✅ Seeded {count} inspections for customer {customerId}");
+        Console.WriteLine($"    ✅ Seeded {count} inspections for customer {customerId} (guaranteed 6 FAIL + 6 PASS)");
     }
 
     private static async Task SeedOwnerStatements(MySqlConnection connection, int customerId, List<int> ownerIds, Faker faker)

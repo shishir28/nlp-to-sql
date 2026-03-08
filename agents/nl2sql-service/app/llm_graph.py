@@ -370,9 +370,23 @@ BondAmount DECIMAL, CreatedAtUtc DATETIME
 - Active tenancies: StatusCode='ACTIVE' AND EndDate IS NULL
 
 ### RentLedgerEntries
-EntryId BIGINT (PK), **CustomerId BIGINT (required)**, TenancyId BIGINT (FK→Tenancies), 
-EntryType VARCHAR (Charge/Receipt/Adjustment), TransactionDate DATE, DueDate DATE, 
+EntryId BIGINT (PK), **CustomerId BIGINT (required)**, TenancyId BIGINT (FK→Tenancies),
+EntryType VARCHAR (Charge/Receipt/Adjustment), TransactionDate DATE, DueDate DATE,
 PaidDate DATE (nullable), Amount DECIMAL, BalanceDelta DECIMAL, Description VARCHAR, Reference VARCHAR
+
+**CRITICAL for Arrears Queries**:
+- BalanceDelta: positive (+) for Charges (money owed), negative (-) for Receipts (money paid)
+- Arrears = unpaid charges: EntryType='Charge' AND PaidDate IS NULL AND DueDate < CURDATE()
+- Total arrears per tenancy: SUM(BalanceDelta) > 0 after grouping by TenancyId
+- CORRECT arrears SQL pattern:
+  SELECT t.TenancyId, tn.FullName, SUM(r.BalanceDelta) AS TotalArrears
+  FROM Tenancies t
+  JOIN RentLedgerEntries r ON t.TenancyId=r.TenancyId AND t.CustomerId=r.CustomerId
+  JOIN Tenants tn ON t.TenantId=tn.TenantId AND t.CustomerId=tn.CustomerId
+  WHERE t.StatusCode='ACTIVE'
+  GROUP BY t.TenancyId, tn.FullName
+  HAVING SUM(r.BalanceDelta) > 0
+  ORDER BY TotalArrears DESC LIMIT 50
 
 ### MaintenanceJobs
 MaintenanceJobId BIGINT (PK), **CustomerId BIGINT (required)**, PropertyId BIGINT (FK→Properties), 
@@ -382,10 +396,16 @@ Priority VARCHAR ('LOW'|'MEDIUM'|'HIGH'|'URGENT'), Category VARCHAR, Summary VAR
 Description TEXT, OpenedAtUtc DATETIME, ClosedAtUtc DATETIME, EstimatedCost DECIMAL, ActualCost DECIMAL
 
 ### Inspections
-InspectionId BIGINT (PK), **CustomerId BIGINT (required)**, PropertyId BIGINT (FK→Properties), 
-TenancyId BIGINT (FK→Tenancies, nullable), InspectionType VARCHAR (Routine/Entry/Exit/Compliance), 
-ScheduledDate DATE, CompletedDate DATE (nullable), ComplianceStatus VARCHAR (PENDING/PASS/FAIL), 
+InspectionId BIGINT (PK), **CustomerId BIGINT (required)**, PropertyId BIGINT (FK→Properties),
+TenancyId BIGINT (FK→Tenancies, nullable), InspectionType VARCHAR (Routine/Entry/Exit/Compliance),
+ScheduledDate DATE, CompletedDate DATE (nullable), ComplianceStatus VARCHAR (PENDING/PASS/FAIL),
 Notes TEXT, InspectorName VARCHAR, CreatedAtUtc DATETIME
+
+**CRITICAL for Compliance Queries**:
+- ComplianceStatus values: 'PASS', 'FAIL', 'PENDING'
+- Compliance failures: WHERE ComplianceStatus='FAIL'
+- Compliance inspections: WHERE InspectionType='Compliance'
+- Upcoming/overdue: WHERE ScheduledDate <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND CompletedDate IS NULL
 
 ### Owners
 OwnerId BIGINT (PK), **CustomerId BIGINT (required)**, FullName VARCHAR, Email VARCHAR, 
