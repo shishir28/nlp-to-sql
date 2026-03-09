@@ -288,7 +288,7 @@
           <h1 class="pm-page-title">Conversational Dashboard</h1>
           <p class="pm-page-desc">Ask to add, change, or remove widgets — all in plain English</p>
         </div>
-        <button *ngIf="widgets.length > 0" (click)="widgets = []" class="pm-btn pm-btn--default pm-btn--sm">
+        <button *ngIf="widgets.length > 0" (click)="clearAllWidgets()" class="pm-btn pm-btn--default pm-btn--sm">
           Clear All
         </button>
       </div>

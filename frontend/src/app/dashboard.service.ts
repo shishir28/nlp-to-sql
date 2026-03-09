@@ -38,6 +38,22 @@ export interface CreateScheduledReportRequest {
   schedule: string;
 }
 
+export interface DashboardWidgetRecord {
+  id: number;
+  title: string;
+  question: string;
+  viewType: string;
+  sortOrder: number;
+  createdAtUtc: string;
+}
+
+export interface SaveDashboardWidgetRequest {
+  title: string;
+  question: string;
+  viewType: string;
+  sortOrder: number;
+}
+
 export interface AnalyticsSummary {
   totalQueries: number;
   successfulQueries: number;
@@ -92,6 +108,38 @@ export class DashboardService {
 
   deleteScheduledReport(id: number, customerId: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/scheduledreports/${id}`, {
+      params: { customerId },
+    });
+  }
+
+  // ─── Widget layout persistence ──────────────────────────────────────────────
+
+  getWidgets(customerId: string): Observable<DashboardWidgetRecord[]> {
+    return this.http.get<DashboardWidgetRecord[]>(`${this.base}/dashboardwidgets`, {
+      params: { customerId },
+    });
+  }
+
+  saveWidget(request: SaveDashboardWidgetRequest, customerId: string): Observable<DashboardWidgetRecord> {
+    return this.http.post<DashboardWidgetRecord>(`${this.base}/dashboardwidgets`, request, {
+      params: { customerId },
+    });
+  }
+
+  updateWidgetView(id: number, viewType: string, customerId: string): Observable<void> {
+    return this.http.patch<void>(`${this.base}/dashboardwidgets/${id}/view`, { viewType }, {
+      params: { customerId },
+    });
+  }
+
+  deleteWidget(id: number, customerId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/dashboardwidgets/${id}`, {
+      params: { customerId },
+    });
+  }
+
+  deleteAllWidgets(customerId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/dashboardwidgets`, {
       params: { customerId },
     });
   }

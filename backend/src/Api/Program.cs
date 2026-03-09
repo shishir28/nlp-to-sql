@@ -27,10 +27,11 @@ builder.Services.AddScoped<ISqlFirewall, SqlFirewall>();
 builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
 builder.Services.AddScoped<IAuditLogger, MySqlAuditLogger>();
 
-// Dashboard / analytics / scheduled reports
+// Dashboard / analytics / scheduled reports / widget layout
 builder.Services.AddScoped<ISavedQueryRepository, SavedQueryRepository>();
 builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
 builder.Services.AddScoped<IScheduledReportRepository, ScheduledReportRepository>();
+builder.Services.AddScoped<IDashboardWidgetRepository, DashboardWidgetRepository>();
 builder.Services.AddHostedService<ReportSchedulerService>();
 
 // CORS for local dev

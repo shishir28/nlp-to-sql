@@ -4,7 +4,7 @@ import { FormsModule } from "@angular/forms";
 import { Subscription } from "rxjs";
 import { QueryService, StreamEvent } from "./query.service";
 import { QueryResponse } from "./models";
-import { DashboardService, SavedQueryDto, AnalyticsSummary, ScheduledReportDto } from "./dashboard.service";
+import { DashboardService, SavedQueryDto, AnalyticsSummary, ScheduledReportDto, DashboardWidgetRecord } from "./dashboard.service";
 
 export interface ConversationTurn {
   question: string;
@@ -16,7 +16,8 @@ export interface ConversationTurn {
 export interface ChartRow { label: string; value: number; pct: number; }
 
 export interface DashboardWidget {
-  id: string;
+  id: string;           // local UUID (used for Angular tracking)
+  dbId?: number;        // DB row id once persisted
   title: string;
   question: string;
   viewType: "kpi" | "chart" | "table";
@@ -110,7 +111,48 @@ export class AppComponent implements OnInit, OnDestroy {
   switchTab(tab: "query" | "dashboard" | "analytics"): void {
     this.activeTab = tab;
     if (tab === "analytics" && !this.analytics) this.loadAnalytics();
-    if (tab === "dashboard") this.loadSavedQueries();
+    if (tab === "dashboard") {
+      this.loadSavedQueries();
+      if (this.widgets.length === 0) this.loadPersistedWidgets();
+    }
+  }
+
+  loadPersistedWidgets(): void {
+    this.dashboardService.getWidgets(this.selectedCustomerId).subscribe({
+      next: (records: DashboardWidgetRecord[]) => {
+        records.forEach((rec, idx) => {
+          const widget: DashboardWidget = {
+            id: this.newId(),
+            dbId: rec.id,
+            title: rec.title,
+            question: rec.question,
+            viewType: rec.viewType as "kpi" | "chart" | "table",
+            loading: true,
+          };
+          // Insert in sort order
+          this.widgets = [...this.widgets.slice(0, idx), widget, ...this.widgets.slice(idx)];
+          this.queryService
+            .executeQuery(rec.question, this.dashboardConvId, this.selectedCustomerId, this.selectedRole)
+            .subscribe({
+              next: (response: QueryResponse) => {
+                widget.response = response;
+                widget.loading = false;
+                widget.error = response.status !== "ok" ? (response.message || "Query failed") : undefined;
+              },
+              error: (err: { error?: { message?: string }; message?: string }) => {
+                widget.loading = false;
+                widget.error = err.error?.message || err.message || "Failed";
+              },
+            });
+        });
+      },
+      error: () => {},
+    });
+  }
+
+  clearAllWidgets(): void {
+    this.widgets = [];
+    this.dashboardService.deleteAllWidgets(this.selectedCustomerId).subscribe({ error: () => {} });
   }
 
   // ─── Conversational Dashboard ────────────────────────────────────────────────
@@ -183,6 +225,17 @@ export class AppComponent implements OnInit, OnDestroy {
           widget.loading = false;
           if (response.status === "ok") {
             widget.viewType = this.detectWidgetType(response);
+            // Auto-save to DB (only if not already persisted)
+            if (!widget.dbId) {
+              this.dashboardService.saveWidget(
+                { title: widget.title, question: widget.question,
+                  viewType: widget.viewType, sortOrder: this.widgets.indexOf(widget) },
+                this.selectedCustomerId
+              ).subscribe({
+                next: (rec: DashboardWidgetRecord) => { widget.dbId = rec.id; },
+                error: () => {},
+              });
+            }
           } else {
             widget.error = response.message || "Query failed";
           }
@@ -213,11 +266,18 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   removeWidget(id: string): void {
+    const widget = this.widgets.find(w => w.id === id);
+    if (widget?.dbId) {
+      this.dashboardService.deleteWidget(widget.dbId, this.selectedCustomerId).subscribe({ error: () => {} });
+    }
     this.widgets = this.widgets.filter(w => w.id !== id);
   }
 
   setWidgetView(widget: DashboardWidget, type: "kpi" | "chart" | "table"): void {
     widget.viewType = type;
+    if (widget.dbId) {
+      this.dashboardService.updateWidgetView(widget.dbId, type, this.selectedCustomerId).subscribe({ error: () => {} });
+    }
   }
 
   detectWidgetType(response: QueryResponse): "kpi" | "chart" | "table" {
