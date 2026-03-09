@@ -16,6 +16,7 @@ public sealed class QueryResponse
     public string? Message { get; init; }
     public string? ErrorCode { get; init; }
     public string? NlSummary { get; init; }
+    public string? GeneratedSql { get; init; }
 }
 
 public sealed class ColumnInfo

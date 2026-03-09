@@ -9,6 +9,23 @@
       </svg>
       <span class="pm-topbar__title">Property Analytics</span>
     </div>
+
+    <!-- Feature 3: Role & Customer Switcher -->
+    <div class="pm-topbar__context">
+      <div class="pm-context-field">
+        <label class="pm-context-label">Customer</label>
+        <select [(ngModel)]="selectedCustomerId" class="pm-context-select" [disabled]="loading">
+          <option *ngFor="let c of customerIds" [value]="c">Customer {{ c }}</option>
+        </select>
+      </div>
+      <div class="pm-context-field">
+        <label class="pm-context-label">Role</label>
+        <select [(ngModel)]="selectedRole" class="pm-context-select" [disabled]="loading">
+          <option *ngFor="let r of roles" [value]="r">{{ r }}</option>
+        </select>
+      </div>
+    </div>
+
     <div class="pm-topbar__subtitle">Natural Language Query</div>
   </header>
 
@@ -87,11 +104,33 @@
     <div *ngIf="response && response.status === 'ok'" class="pm-card pm-card--results">
       <div class="pm-results-header">
         <h2 class="pm-results-title">Results</h2>
-        <div class="pm-badges">
-          <span class="pm-badge">{{ response.rowCount }} rows</span>
-          <span class="pm-badge" *ngIf="response.executionMs">{{ response.executionMs }}ms</span>
-          <span class="pm-badge pm-badge--primary" *ngIf="response.domain">{{ response.domain }}</span>
+        <div class="pm-results-actions">
+          <!-- Feature 1: Show SQL toggle -->
+          <button
+            *ngIf="response.generatedSql"
+            (click)="showSql = !showSql"
+            class="pm-btn pm-btn--ghost pm-btn--sm">
+            {{ showSql ? 'Hide SQL' : 'Show SQL' }}
+          </button>
+          <!-- Feature 2: CSV export -->
+          <button
+            *ngIf="response.rows && response.rows.length > 0"
+            (click)="exportCsv()"
+            class="pm-btn pm-btn--ghost pm-btn--sm">
+            &#8659; Export CSV
+          </button>
+          <div class="pm-badges">
+            <span class="pm-badge">{{ response.rowCount }} rows</span>
+            <span class="pm-badge" *ngIf="response.executionMs">{{ response.executionMs }}ms</span>
+            <span class="pm-badge pm-badge--primary" *ngIf="response.domain">{{ response.domain }}</span>
+          </div>
         </div>
+      </div>
+
+      <!-- Feature 1: Generated SQL panel -->
+      <div *ngIf="showSql && response.generatedSql" class="pm-sql-panel">
+        <div class="pm-sql-panel__label">Generated SQL</div>
+        <pre class="pm-sql-code">{{ response.generatedSql }}</pre>
       </div>
 
       <div *ngIf="response.rows && response.rows.length > 0" class="pm-table-wrap">

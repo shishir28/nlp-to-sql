@@ -21,28 +21,21 @@ export class QueryService {
   executeQuery(
     question: string,
     conversationId?: string,
+    customerId?: string,
+    role?: string,
   ): Observable<QueryResponse> {
-    const request: NlQueryRequest = {
-      question,
-      conversationId,
-    };
+    const request: NlQueryRequest = { question, conversationId, customerId, role };
     return this.http.post<QueryResponse>(this.apiUrl, request);
   }
 
-  /**
-   * Stream SQL generation progress using Server-Sent Events.
-   * Emits one StreamEvent per agent stage: agent_start, sql_generated,
-   * validation_done, done, error.
-   *
-   * Usage:
-   *   this.queryService.streamQuery('show top arrears').subscribe(evt => {
-   *     if (evt.event === 'done') { ... }
-   *   });
-   */
-  streamQuery(question: string, conversationId?: string): Observable<StreamEvent> {
+  streamQuery(
+    question: string,
+    conversationId?: string,
+    customerId?: string,
+    role?: string,
+  ): Observable<StreamEvent> {
     const subject = new Subject<StreamEvent>();
-
-    const body = JSON.stringify({ question, conversationId });
+    const body = JSON.stringify({ question, conversationId, customerId, role });
 
     fetch(this.streamUrl, {
       method: "POST",

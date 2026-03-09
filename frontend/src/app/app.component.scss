@@ -43,6 +43,48 @@
     font-weight: 500;
     color: var(--pm-gray-400);
   }
+
+  &__context {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+}
+
+// ─── Context Switcher (Role / Customer) ───────────────────────────────────────
+.pm-context-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pm-context-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pm-gray-400);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.pm-context-select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--pm-gray-200);
+  border-radius: var(--pm-radius);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pm-gray-700);
+  background: var(--pm-gray-50);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  padding-right: 22px;
+
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  &:focus { outline: none; border-color: var(--pm-primary); }
 }
 
 // ─── Page Content ─────────────────────────────────────────────────────────────
@@ -219,6 +261,21 @@
     }
   }
 
+  &--ghost {
+    background: transparent;
+    color: var(--pm-primary);
+    border-color: var(--pm-primary);
+
+    &:hover:not(:disabled) {
+      background: #eef6fd;
+    }
+  }
+
+  &--sm {
+    padding: 3px 10px;
+    font-size: 12px;
+  }
+
   &__loading {
     display: inline-flex;
     align-items: center;
@@ -346,9 +403,45 @@
   margin: 0;
 }
 
+.pm-results-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .pm-badges {
   display: flex;
   gap: 6px;
+}
+
+// ─── SQL Panel ────────────────────────────────────────────────────────────────
+.pm-sql-panel {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--pm-gray-200);
+  background: #f8fafc;
+
+  &__label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--pm-gray-400);
+    margin-bottom: 6px;
+  }
+}
+
+.pm-sql-code {
+  margin: 0;
+  padding: 10px 14px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  border-radius: var(--pm-radius);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .pm-badge {

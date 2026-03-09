@@ -40,10 +40,12 @@ public class QueryController : ControllerBase
                 });
             }
 
-            // Extract context from auth claims (fallback to dev values for local testing)
-            var customerId = User.FindFirst("customer_id")?.Value ?? "1";
+            // Extract context from auth claims; fall back to request body for dev/demo
+            var customerId = User.FindFirst("customer_id")?.Value
+                ?? request.CustomerId ?? "1";
             var userId = User.FindFirst("sub")?.Value ?? "local-dev-user";
-            var role = User.FindFirst("role")?.Value ?? "PropertyManager";
+            var role = User.FindFirst("role")?.Value
+                ?? request.Role ?? "PropertyManager";
 
             _logger.LogInformation(
                 "Query request from user={UserId}, customer={CustomerId}, role={Role}, question={Question}",
@@ -83,9 +85,11 @@ public class QueryController : ControllerBase
         [FromServices] ISchemaPolicyProvider policyProvider,
         CancellationToken cancellationToken)
     {
-        var customerId = User.FindFirst("customer_id")?.Value ?? "1";
+        var customerId = User.FindFirst("customer_id")?.Value
+            ?? request.CustomerId ?? "1";
         var userId = User.FindFirst("sub")?.Value ?? "local-dev-user";
-        var role = User.FindFirst("role")?.Value ?? "PropertyManager";
+        var role = User.FindFirst("role")?.Value
+            ?? request.Role ?? "PropertyManager";
 
         Response.Headers["Content-Type"] = "text/event-stream";
         Response.Headers["Cache-Control"] = "no-cache";

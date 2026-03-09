@@ -15,9 +15,12 @@ export interface QueryResponse {
   message?: string;
   errorCode?: string;
   nlSummary?: string;
+  generatedSql?: string;
 }
 
 export interface NlQueryRequest {
   question: string;
   conversationId?: string;
+  customerId?: string;
+  role?: string;
 }

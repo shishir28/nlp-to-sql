@@ -2,7 +2,7 @@ import { Component, OnDestroy } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { Subscription } from "rxjs";
-import { QueryService } from "./query.service";
+import { QueryService, StreamEvent } from "./query.service";
 import { QueryResponse } from "./models";
 
 @Component({
@@ -18,22 +18,32 @@ export class AppComponent implements OnDestroy {
   response?: QueryResponse;
   error?: string;
 
-  /** Label shown while streaming agent progress (e.g. "Running domain_classifier...") */
+  /** Live agent label during SSE streaming */
   streamingAgent: string = "";
+
+  /** SQL panel toggle (feature 1) */
+  showSql: boolean = false;
+
+  /** Role/customer switcher (feature 3) */
+  selectedRole: string = "PropertyManager";
+  selectedCustomerId: string = "1";
+
+  readonly roles = ["PropertyManager", "Owner", "Tenant"];
+  readonly customerIds = ["1", "2", "3", "4", "5"];
 
   private streamSub?: Subscription;
   private querySub?: Subscription;
 
   readonly examples = [
-    { label: "Expiring Leases",    query: "Show active tenancies ending in next 60 days" },
-    { label: "Arrears",            query: "Which tenancies have arrears?" },
-    { label: "Open Jobs",          query: "Show open maintenance jobs" },
-    { label: "Inspections",        query: "List upcoming inspections" },
-    { label: "Contractors",        query: "List all active contractors" },
-    { label: "Vacant Properties",  query: "Show vacant properties in portfolio" },
-    { label: "Lease Renewals",     query: "Which leases are expiring in 90 days?" },
-    { label: "Compliance Fails",   query: "Show non-compliant inspection results" },
-    { label: "Financial Summary",  query: "Show total income summary by owner" },
+    { label: "Expiring Leases",   query: "Show active tenancies ending in next 60 days" },
+    { label: "Arrears",           query: "Which tenancies have arrears?" },
+    { label: "Open Jobs",         query: "Show open maintenance jobs" },
+    { label: "Inspections",       query: "List upcoming inspections" },
+    { label: "Contractors",       query: "List all active contractors" },
+    { label: "Vacant Properties", query: "Show vacant properties in portfolio" },
+    { label: "Lease Renewals",    query: "Which leases are expiring in 90 days?" },
+    { label: "Compliance Fails",  query: "Show non-compliant inspection results" },
+    { label: "Financial Summary", query: "Show total income summary by owner" },
   ];
 
   constructor(private queryService: QueryService) {}
@@ -51,42 +61,67 @@ export class AppComponent implements OnDestroy {
 
     this.loading = true;
     this.streamingAgent = "";
+    this.showSql = false;
     this.error = undefined;
     this.response = undefined;
     this.streamSub?.unsubscribe();
     this.querySub?.unsubscribe();
 
-    // Stream agent progress for live status updates
-    this.streamSub = this.queryService.streamQuery(this.question).subscribe({
-      next: (evt) => {
-        if (evt.event === "agent_start") {
-          const agent = (evt.data["agent"] as string) ?? "";
-          this.streamingAgent = this.formatAgentLabel(agent);
-        } else if (evt.event === "done" || evt.event === "error") {
-          this.streamingAgent = "";
-        }
-      },
-      error: () => { this.streamingAgent = ""; },
-    });
+    this.streamSub = this.queryService
+      .streamQuery(this.question, undefined, this.selectedCustomerId, this.selectedRole)
+      .subscribe({
+        next: (evt: StreamEvent) => {
+          if (evt.event === "agent_start") {
+            this.streamingAgent = this.formatAgentLabel((evt.data["agent"] as string) ?? "");
+          } else if (evt.event === "done" || evt.event === "error") {
+            this.streamingAgent = "";
+          }
+        },
+        error: () => { this.streamingAgent = ""; },
+      });
 
-    // Execute query through the full pipeline (firewall + DB)
-    this.querySub = this.queryService.executeQuery(this.question).subscribe({
-      next: (response) => {
-        this.response = response;
-        this.loading = false;
-        this.streamingAgent = "";
-        this.error = this.getErrorForStatus(response);
-      },
-      error: (err) => {
-        this.error = err.error?.message || err.message || "Failed to execute query";
-        this.loading = false;
-        this.streamingAgent = "";
-      },
-    });
+    this.querySub = this.queryService
+      .executeQuery(this.question, undefined, this.selectedCustomerId, this.selectedRole)
+      .subscribe({
+        next: (response: QueryResponse) => {
+          this.response = response;
+          this.loading = false;
+          this.streamingAgent = "";
+          this.error = this.getErrorForStatus(response);
+        },
+        error: (err: { error?: { message?: string }; message?: string }) => {
+          this.error = err.error?.message || err.message || "Failed to execute query";
+          this.loading = false;
+          this.streamingAgent = "";
+        },
+      });
+  }
+
+  /** Feature 2: CSV export */
+  exportCsv(): void {
+    if (!this.response?.rows?.length) return;
+    const cols = this.getColumnKeys();
+    const header = cols.join(",");
+    const rowLines = this.response.rows.map((row) =>
+      cols.map((c) => {
+        const val = row[c] ?? "";
+        const str = String(val);
+        return str.includes(",") || str.includes('"') || str.includes("\n")
+          ? `"${str.replace(/"/g, '""')}"` : str;
+      }).join(",")
+    );
+    const csv = [header, ...rowLines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `query-results-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   getColumnKeys(): string[] {
-    if (!this.response?.columns || this.response.columns.length === 0) {
+    if (!this.response?.columns?.length) {
       return this.response?.rows?.[0] ? Object.keys(this.response.rows[0]) : [];
     }
     return this.response.columns.map((col) => col.name);
@@ -96,6 +131,7 @@ export class AppComponent implements OnDestroy {
     this.response = undefined;
     this.error = undefined;
     this.streamingAgent = "";
+    this.showSql = false;
     this.streamSub?.unsubscribe();
     this.querySub?.unsubscribe();
   }
@@ -125,9 +161,7 @@ export class AppComponent implements OnDestroy {
   }
 
   private getErrorForStatus(response: QueryResponse): string | undefined {
-    if (response.status === "ok" || response.status === "clarification_needed") {
-      return undefined;
-    }
+    if (response.status === "ok" || response.status === "clarification_needed") return undefined;
     return response.message || "Query failed";
   }
 }

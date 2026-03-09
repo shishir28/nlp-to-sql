@@ -152,7 +152,8 @@ public sealed class NlSqlOrchestrator(
                     agentResponse.ScopedTables,
                     rows.Count,
                     firewallResult.RuleHits),
-                NlSummary = nlSummary
+                NlSummary = nlSummary,
+                GeneratedSql = firewallResult.RewrittenSql
             };
         }
         catch (Exception ex)
