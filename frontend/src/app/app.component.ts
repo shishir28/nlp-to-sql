@@ -1,9 +1,10 @@
-import { Component, OnDestroy } from "@angular/core";
+import { Component, OnDestroy, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { Subscription } from "rxjs";
 import { QueryService, StreamEvent } from "./query.service";
 import { QueryResponse } from "./models";
+import { DashboardService, SavedQueryDto, AnalyticsSummary, ScheduledReportDto } from "./dashboard.service";
 
 export interface ConversationTurn {
   question: string;
@@ -21,7 +22,7 @@ export interface ChartRow { label: string; value: number; pct: number; }
   templateUrl: "./app.component.html",
   styleUrls: ["./app.component.scss"],
 })
-export class AppComponent implements OnDestroy {
+export class AppComponent implements OnInit, OnDestroy {
   question: string = "";
   loading: boolean = false;
   response?: QueryResponse;
@@ -63,11 +64,144 @@ export class AppComponent implements OnDestroy {
     { label: "Financial Summary", query: "Show total income summary by owner" },
   ];
 
-  constructor(private queryService: QueryService) {}
+  /** Phase 3: active tab */
+  activeTab: "query" | "dashboard" | "analytics" = "query";
+
+  /** Phase 3: saved/pinned queries */
+  savedQueries: SavedQueryDto[] = [];
+  pinDialogOpen: boolean = false;
+  pinName: string = "";
+
+  /** Phase 3: scheduled reports */
+  scheduledReports: ScheduledReportDto[] = [];
+  scheduleDialogOpen: boolean = false;
+  scheduleForm = { name: "", recipientEmail: "", schedule: "daily" };
+
+  /** Phase 3: analytics */
+  analytics: AnalyticsSummary | null = null;
+  analyticsLoading: boolean = false;
+
+  constructor(private queryService: QueryService, private dashboardService: DashboardService) {}
+
+  ngOnInit(): void {
+    this.loadSavedQueries();
+  }
 
   ngOnDestroy(): void {
     this.streamSub?.unsubscribe();
     this.querySub?.unsubscribe();
+  }
+
+  /** Phase 3: tab navigation */
+  switchTab(tab: "query" | "dashboard" | "analytics"): void {
+    this.activeTab = tab;
+    if (tab === "analytics" && !this.analytics) {
+      this.loadAnalytics();
+    }
+    if (tab === "dashboard") {
+      this.loadSavedQueries();
+      this.loadScheduledReports();
+    }
+  }
+
+  /** Phase 3: pin current query */
+  openPinDialog(): void {
+    this.pinName = this.question.trim().slice(0, 60);
+    this.pinDialogOpen = true;
+  }
+
+  confirmPin(): void {
+    if (!this.pinName.trim() || !this.question.trim()) return;
+    this.dashboardService.saveQuery(
+      { name: this.pinName.trim(), question: this.question.trim(), role: this.selectedRole },
+      this.selectedCustomerId
+    ).subscribe({
+      next: (saved: SavedQueryDto) => {
+        this.savedQueries = [saved, ...this.savedQueries];
+        this.pinDialogOpen = false;
+        this.pinName = "";
+      },
+      error: () => { this.pinDialogOpen = false; }
+    });
+  }
+
+  cancelPin(): void {
+    this.pinDialogOpen = false;
+    this.pinName = "";
+  }
+
+  loadSavedQueries(): void {
+    this.dashboardService.getSavedQueries(this.selectedCustomerId).subscribe({
+      next: (q: SavedQueryDto[]) => { this.savedQueries = q; },
+      error: () => {}
+    });
+  }
+
+  deleteSavedQuery(id: number): void {
+    this.dashboardService.deleteSavedQuery(id, this.selectedCustomerId).subscribe({
+      next: () => { this.savedQueries = this.savedQueries.filter(q => q.id !== id); },
+      error: () => {}
+    });
+  }
+
+  runSavedQuery(q: SavedQueryDto): void {
+    this.activeTab = "query";
+    this.loadExample(q.question);
+    this.runQuery(q.question);
+  }
+
+  /** Phase 3: scheduled reports */
+  openScheduleDialog(): void {
+    this.scheduleForm = { name: this.question.trim().slice(0, 60), recipientEmail: "", schedule: "daily" };
+    this.scheduleDialogOpen = true;
+  }
+
+  confirmSchedule(): void {
+    const f = this.scheduleForm;
+    if (!f.name.trim() || !f.recipientEmail.trim()) return;
+    this.dashboardService.createScheduledReport(
+      { name: f.name.trim(), question: this.question.trim(), role: this.selectedRole,
+        recipientEmail: f.recipientEmail.trim(), schedule: f.schedule },
+      this.selectedCustomerId
+    ).subscribe({
+      next: (r: ScheduledReportDto) => {
+        this.scheduledReports = [r, ...this.scheduledReports];
+        this.scheduleDialogOpen = false;
+      },
+      error: () => { this.scheduleDialogOpen = false; }
+    });
+  }
+
+  cancelSchedule(): void {
+    this.scheduleDialogOpen = false;
+  }
+
+  loadScheduledReports(): void {
+    this.dashboardService.getScheduledReports(this.selectedCustomerId).subscribe({
+      next: (r: ScheduledReportDto[]) => { this.scheduledReports = r; },
+      error: () => {}
+    });
+  }
+
+  deleteScheduledReport(id: number): void {
+    this.dashboardService.deleteScheduledReport(id, this.selectedCustomerId).subscribe({
+      next: () => { this.scheduledReports = this.scheduledReports.filter(r => r.id !== id); },
+      error: () => {}
+    });
+  }
+
+  /** Phase 3: analytics */
+  loadAnalytics(): void {
+    this.analyticsLoading = true;
+    this.dashboardService.getAnalytics(this.selectedCustomerId).subscribe({
+      next: (a: AnalyticsSummary) => { this.analytics = a; this.analyticsLoading = false; },
+      error: () => { this.analyticsLoading = false; }
+    });
+  }
+
+  getAnalyticsMaxDomain(): number {
+    if (!this.analytics?.domainBreakdown?.length) return 1;
+    return Math.max(...this.analytics.domainBreakdown.map(d => d.count));
   }
 
   runQuery(questionOverride?: string): void {

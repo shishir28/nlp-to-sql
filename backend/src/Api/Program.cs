@@ -1,7 +1,9 @@
 using Application.Abstractions;
 using Application.Orchestration;
 using Infrastructure.Agents;
+using Infrastructure.Dashboard;
 using Infrastructure.Data;
+using Infrastructure.Email;
 using Infrastructure.Logging;
 using Infrastructure.Policy;
 using Infrastructure.Security;
@@ -23,7 +25,13 @@ builder.Services.AddScoped<ISummarizationClient, SummarizationClient>();
 builder.Services.AddSingleton<ISchemaPolicyProvider, JsonSchemaPolicyProvider>();
 builder.Services.AddScoped<ISqlFirewall, SqlFirewall>();
 builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
-builder.Services.AddScoped<IAuditLogger, ConsoleAuditLogger>();
+builder.Services.AddScoped<IAuditLogger, MySqlAuditLogger>();
+
+// Dashboard / analytics / scheduled reports
+builder.Services.AddScoped<ISavedQueryRepository, SavedQueryRepository>();
+builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
+builder.Services.AddScoped<IScheduledReportRepository, ScheduledReportRepository>();
+builder.Services.AddHostedService<ReportSchedulerService>();
 
 // CORS for local dev
 builder.Services.AddCors(options =>

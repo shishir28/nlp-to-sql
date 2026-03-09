@@ -10,6 +10,13 @@
       <span class="pm-topbar__title">Property Analytics</span>
     </div>
 
+    <!-- Tab Navigation -->
+    <nav class="pm-topbar__tabs">
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'query'" (click)="switchTab('query')">Query</button>
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'dashboard'" (click)="switchTab('dashboard')">Dashboard</button>
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'analytics'" (click)="switchTab('analytics')">Analytics</button>
+    </nav>
+
     <!-- Role & Customer Switcher -->
     <div class="pm-topbar__context">
       <div class="pm-context-field">
@@ -25,208 +32,391 @@
         </select>
       </div>
     </div>
-
-    <div class="pm-topbar__subtitle">Natural Language Query</div>
   </header>
 
   <!-- Page Content -->
   <main class="pm-content">
-    <div class="pm-page-header">
-      <div>
-        <h1 class="pm-page-title">Property Query Assistant</h1>
-        <p class="pm-page-desc">Ask questions about your portfolio in plain English</p>
-      </div>
-      <button *ngIf="conversationHistory.length > 0" (click)="newConversation()"
-        class="pm-btn pm-btn--default pm-btn--sm">
-        + New Conversation
-      </button>
-    </div>
 
-    <!-- Example Queries -->
-    <div class="pm-card pm-card--examples">
-      <div class="pm-card__label">Quick examples</div>
-      <div class="pm-examples">
-        <button class="pm-example-btn" *ngFor="let ex of examples" (click)="loadExample(ex.query)">
-          {{ ex.label }}
+    <!-- ============ QUERY TAB ============ -->
+    <ng-container *ngIf="activeTab === 'query'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">Property Query Assistant</h1>
+          <p class="pm-page-desc">Ask questions about your portfolio in plain English</p>
+        </div>
+        <button *ngIf="conversationHistory.length > 0" (click)="newConversation()"
+          class="pm-btn pm-btn--default pm-btn--sm">
+          + New Conversation
         </button>
       </div>
-    </div>
 
-    <!-- Conversation Thread (past turns) -->
-    <div *ngIf="conversationHistory.length > 0" class="pm-thread">
-      <div *ngFor="let turn of conversationHistory" class="pm-thread-turn">
-
-        <div class="pm-thread-question">
-          <span class="pm-thread-q-icon">Q</span>
-          <div class="pm-thread-q-text">{{ turn.question }}</div>
-        </div>
-
-        <div class="pm-thread-answer">
-          <div *ngIf="turn.error" class="pm-thread-error">{{ turn.error }}</div>
-
-          <ng-container *ngIf="turn.response as r">
-            <div *ngIf="r.status === 'clarification_needed'" class="pm-thread-clarification">
-              Need more detail: {{ r.message }}
-            </div>
-
-            <div *ngIf="r.status === 'ok'" class="pm-thread-result">
-              <div class="pm-thread-summary">
-                <span *ngIf="r.nlSummary">{{ r.nlSummary }}</span>
-                <span *ngIf="!r.nlSummary">{{ r.rowCount }} row{{ r.rowCount === 1 ? '' : 's' }} returned</span>
-              </div>
-              <div class="pm-thread-meta">
-                <span class="pm-badge">{{ r.rowCount }} rows</span>
-                <span class="pm-badge pm-badge--primary" *ngIf="r.domain">{{ r.domain }}</span>
-                <button (click)="turn.showSql = !turn.showSql" *ngIf="r.generatedSql"
-                  class="pm-btn pm-btn--ghost pm-btn--sm">
-                  {{ turn.showSql ? 'Hide SQL' : 'View SQL' }}
-                </button>
-                <button (click)="exportCsv(r)" *ngIf="r.rows?.length"
-                  class="pm-btn pm-btn--ghost pm-btn--sm">
-                  &#8659; CSV
-                </button>
-              </div>
-              <div *ngIf="turn.showSql && r.generatedSql" class="pm-sql-panel pm-sql-panel--compact">
-                <pre class="pm-sql-code">{{ r.generatedSql }}</pre>
-              </div>
-            </div>
-          </ng-container>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- Query Input Card -->
-    <div class="pm-card">
-      <label class="pm-label">{{ conversationHistory.length > 0 ? 'Follow-up question' : 'Your question' }}</label>
-      <textarea
-        [(ngModel)]="question"
-        placeholder="e.g. Show active tenancies ending in the next 60 days"
-        class="pm-textarea"
-        rows="3"
-        [disabled]="loading">
-      </textarea>
-
-      <div class="pm-actions">
-        <button (click)="runQuery()" [disabled]="loading || !question.trim()" class="pm-btn pm-btn--primary">
-          <span *ngIf="!loading">{{ conversationHistory.length > 0 ? 'Ask Follow-up' : 'Run Query' }}</span>
-          <span *ngIf="loading" class="pm-btn__loading">
-            <span class="pm-spinner"></span> Processing…
-          </span>
-        </button>
-        <button (click)="clearResults()" [disabled]="loading || (!response && !error)" class="pm-btn pm-btn--default">
-          Clear
-        </button>
-        <div *ngIf="loading && streamingAgent" class="pm-stream-status">
-          <span class="pm-stream-dot"></span>
-          {{ streamingAgent }}
-        </div>
-      </div>
-    </div>
-
-    <!-- Current response alerts -->
-    <div *ngIf="error" class="pm-alert pm-alert--danger">
-      <span class="pm-alert__icon">&#9888;</span>
-      <div><strong>Error:</strong> {{ error }}</div>
-    </div>
-
-    <!-- Inline Clarification -->
-    <div *ngIf="response?.message && isClarificationResponse()" class="pm-alert pm-alert--info">
-      <span class="pm-alert__icon">&#9432;</span>
-      <div class="pm-clarification">
-        <div><strong>Need more detail:</strong> {{ response?.message }}</div>
-        <div class="pm-clarification-input">
-          <input [(ngModel)]="clarificationAnswer" (keydown.enter)="submitClarification()"
-            placeholder="Type your answer…" class="pm-input" [disabled]="loading" />
-          <button (click)="submitClarification()"
-            [disabled]="loading || !clarificationAnswer.trim()"
-            class="pm-btn pm-btn--primary pm-btn--sm">
-            Reply
+      <!-- Example Queries -->
+      <div class="pm-card pm-card--examples">
+        <div class="pm-card__label">Quick examples</div>
+        <div class="pm-examples">
+          <button class="pm-example-btn" *ngFor="let ex of examples" (click)="loadExample(ex.query)">
+            {{ ex.label }}
           </button>
         </div>
       </div>
-    </div>
 
-    <div *ngIf="response?.message && response?.status !== 'ok' && !isClarificationResponse()" class="pm-alert pm-alert--warning">
-      <span class="pm-alert__icon">&#9888;</span>
-      <div>{{ response?.message }}</div>
-    </div>
-
-    <div *ngIf="response?.explanation" class="pm-alert pm-alert--note">
-      <span class="pm-alert__icon">&#128221;</span>
-      <div>{{ response?.explanation }}</div>
-    </div>
-
-    <div *ngIf="response?.nlSummary" class="pm-alert pm-alert--success">
-      <span class="pm-alert__icon">&#10003;</span>
-      <div><strong>Summary:</strong> {{ response?.nlSummary }}</div>
-    </div>
-
-    <!-- Results Card -->
-    <div *ngIf="response && response.status === 'ok'" class="pm-card pm-card--results">
-      <div class="pm-results-header">
-        <h2 class="pm-results-title">Results</h2>
-        <div class="pm-results-actions">
-          <button *ngIf="hasChartableData()" (click)="showChart = !showChart"
-            class="pm-btn pm-btn--ghost pm-btn--sm">
-            {{ showChart ? 'Hide Chart' : 'Show Chart' }}
-          </button>
-          <button *ngIf="response.generatedSql" (click)="showSql = !showSql"
-            class="pm-btn pm-btn--ghost pm-btn--sm">
-            {{ showSql ? 'Hide SQL' : 'Show SQL' }}
-          </button>
-          <button *ngIf="response.rows && response.rows.length > 0" (click)="exportCsv()"
-            class="pm-btn pm-btn--ghost pm-btn--sm">
-            &#8659; Export CSV
-          </button>
-          <div class="pm-badges">
-            <span class="pm-badge">{{ response.rowCount }} rows</span>
-            <span class="pm-badge" *ngIf="response.executionMs">{{ response.executionMs }}ms</span>
-            <span class="pm-badge pm-badge--primary" *ngIf="response.domain">{{ response.domain }}</span>
+      <!-- Conversation Thread (past turns) -->
+      <div *ngIf="conversationHistory.length > 0" class="pm-thread">
+        <div *ngFor="let turn of conversationHistory" class="pm-thread-turn">
+          <div class="pm-thread-question">
+            <span class="pm-thread-q-icon">Q</span>
+            <div class="pm-thread-q-text">{{ turn.question }}</div>
+          </div>
+          <div class="pm-thread-answer">
+            <div *ngIf="turn.error" class="pm-thread-error">{{ turn.error }}</div>
+            <ng-container *ngIf="turn.response as r">
+              <div *ngIf="r.status === 'clarification_needed'" class="pm-thread-clarification">
+                Need more detail: {{ r.message }}
+              </div>
+              <div *ngIf="r.status === 'ok'" class="pm-thread-result">
+                <div class="pm-thread-summary">
+                  <span *ngIf="r.nlSummary">{{ r.nlSummary }}</span>
+                  <span *ngIf="!r.nlSummary">{{ r.rowCount }} row{{ r.rowCount === 1 ? '' : 's' }} returned</span>
+                </div>
+                <div class="pm-thread-meta">
+                  <span class="pm-badge">{{ r.rowCount }} rows</span>
+                  <span class="pm-badge pm-badge--primary" *ngIf="r.domain">{{ r.domain }}</span>
+                  <button (click)="turn.showSql = !turn.showSql" *ngIf="r.generatedSql"
+                    class="pm-btn pm-btn--ghost pm-btn--sm">
+                    {{ turn.showSql ? 'Hide SQL' : 'View SQL' }}
+                  </button>
+                  <button (click)="exportCsv(r)" *ngIf="r.rows?.length"
+                    class="pm-btn pm-btn--ghost pm-btn--sm">
+                    &#8659; CSV
+                  </button>
+                </div>
+                <div *ngIf="turn.showSql && r.generatedSql" class="pm-sql-panel pm-sql-panel--compact">
+                  <pre class="pm-sql-code">{{ r.generatedSql }}</pre>
+                </div>
+              </div>
+            </ng-container>
           </div>
         </div>
       </div>
 
-      <!-- Auto-Chart -->
-      <div *ngIf="showChart" class="pm-chart-panel">
-        <div class="pm-chart">
-          <div *ngFor="let row of getChartData()" class="pm-chart-row">
-            <span class="pm-chart-label" [title]="row.label">{{ row.label }}</span>
-            <div class="pm-chart-bar-wrap">
-              <div class="pm-chart-bar" [style.width.%]="row.pct"></div>
-              <span class="pm-chart-val">{{ row.value | number }}</span>
+      <!-- Query Input Card -->
+      <div class="pm-card">
+        <label class="pm-label">{{ conversationHistory.length > 0 ? 'Follow-up question' : 'Your question' }}</label>
+        <textarea
+          [(ngModel)]="question"
+          placeholder="e.g. Show active tenancies ending in the next 60 days"
+          class="pm-textarea"
+          rows="3"
+          [disabled]="loading">
+        </textarea>
+
+        <div class="pm-actions">
+          <button (click)="runQuery()" [disabled]="loading || !question.trim()" class="pm-btn pm-btn--primary">
+            <span *ngIf="!loading">{{ conversationHistory.length > 0 ? 'Ask Follow-up' : 'Run Query' }}</span>
+            <span *ngIf="loading" class="pm-btn__loading">
+              <span class="pm-spinner"></span> Processing…
+            </span>
+          </button>
+          <button (click)="clearResults()" [disabled]="loading || (!response && !error)" class="pm-btn pm-btn--default">
+            Clear
+          </button>
+          <div *ngIf="loading && streamingAgent" class="pm-stream-status">
+            <span class="pm-stream-dot"></span>
+            {{ streamingAgent }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Alerts -->
+      <div *ngIf="error" class="pm-alert pm-alert--danger">
+        <span class="pm-alert__icon">&#9888;</span>
+        <div><strong>Error:</strong> {{ error }}</div>
+      </div>
+
+      <div *ngIf="response?.message && isClarificationResponse()" class="pm-alert pm-alert--info">
+        <span class="pm-alert__icon">&#9432;</span>
+        <div class="pm-clarification">
+          <div><strong>Need more detail:</strong> {{ response?.message }}</div>
+          <div class="pm-clarification-input">
+            <input [(ngModel)]="clarificationAnswer" (keydown.enter)="submitClarification()"
+              placeholder="Type your answer…" class="pm-input" [disabled]="loading" />
+            <button (click)="submitClarification()"
+              [disabled]="loading || !clarificationAnswer.trim()"
+              class="pm-btn pm-btn--primary pm-btn--sm">
+              Reply
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="response?.message && response?.status !== 'ok' && !isClarificationResponse()" class="pm-alert pm-alert--warning">
+        <span class="pm-alert__icon">&#9888;</span>
+        <div>{{ response?.message }}</div>
+      </div>
+
+      <div *ngIf="response?.explanation" class="pm-alert pm-alert--note">
+        <span class="pm-alert__icon">&#128221;</span>
+        <div>{{ response?.explanation }}</div>
+      </div>
+
+      <div *ngIf="response?.nlSummary" class="pm-alert pm-alert--success">
+        <span class="pm-alert__icon">&#10003;</span>
+        <div><strong>Summary:</strong> {{ response?.nlSummary }}</div>
+      </div>
+
+      <!-- Results Card -->
+      <div *ngIf="response && response.status === 'ok'" class="pm-card pm-card--results">
+        <div class="pm-results-header">
+          <h2 class="pm-results-title">Results</h2>
+          <div class="pm-results-actions">
+            <button *ngIf="hasChartableData()" (click)="showChart = !showChart"
+              class="pm-btn pm-btn--ghost pm-btn--sm">
+              {{ showChart ? 'Hide Chart' : 'Show Chart' }}
+            </button>
+            <button *ngIf="response.generatedSql" (click)="showSql = !showSql"
+              class="pm-btn pm-btn--ghost pm-btn--sm">
+              {{ showSql ? 'Hide SQL' : 'Show SQL' }}
+            </button>
+            <button *ngIf="response.rows && response.rows.length > 0" (click)="exportCsv()"
+              class="pm-btn pm-btn--ghost pm-btn--sm">
+              &#8659; Export CSV
+            </button>
+            <!-- Pin button -->
+            <button (click)="openPinDialog()" class="pm-btn pm-btn--ghost pm-btn--sm pm-btn--pin"
+              title="Save this query to dashboard">
+              &#128204; Pin
+            </button>
+            <!-- Schedule button -->
+            <button (click)="openScheduleDialog()" class="pm-btn pm-btn--ghost pm-btn--sm"
+              title="Schedule this query as email report">
+              &#128337; Schedule
+            </button>
+            <div class="pm-badges">
+              <span class="pm-badge">{{ response.rowCount }} rows</span>
+              <span class="pm-badge" *ngIf="response.executionMs">{{ response.executionMs }}ms</span>
+              <span class="pm-badge pm-badge--primary" *ngIf="response.domain">{{ response.domain }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Auto-Chart -->
+        <div *ngIf="showChart" class="pm-chart-panel">
+          <div class="pm-chart">
+            <div *ngFor="let row of getChartData()" class="pm-chart-row">
+              <span class="pm-chart-label" [title]="row.label">{{ row.label }}</span>
+              <div class="pm-chart-bar-wrap">
+                <div class="pm-chart-bar" [style.width.%]="row.pct"></div>
+                <span class="pm-chart-val">{{ row.value | number }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SQL Panel -->
+        <div *ngIf="showSql && response.generatedSql" class="pm-sql-panel">
+          <div class="pm-sql-panel__label">Generated SQL</div>
+          <pre class="pm-sql-code">{{ response.generatedSql }}</pre>
+        </div>
+
+        <div *ngIf="response.rows && response.rows.length > 0" class="pm-table-wrap">
+          <table class="pm-table">
+            <thead>
+              <tr>
+                <th *ngFor="let col of getColumnKeys()">{{ col }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let row of response.rows">
+                <td *ngFor="let col of getColumnKeys()">
+                  {{ row[col] !== null && row[col] !== undefined ? row[col] : '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div *ngIf="!response.rows || response.rows.length === 0" class="pm-empty">
+          No results found for this query.
+        </div>
+      </div>
+
+      <!-- Pin Dialog -->
+      <div *ngIf="pinDialogOpen" class="pm-dialog-overlay">
+        <div class="pm-dialog">
+          <h3 class="pm-dialog__title">&#128204; Pin Query</h3>
+          <p class="pm-dialog__desc">Save this query to your dashboard for quick access.</p>
+          <label class="pm-label">Name</label>
+          <input [(ngModel)]="pinName" class="pm-input pm-input--full" placeholder="e.g. Expiring Leases" />
+          <div class="pm-dialog__actions">
+            <button (click)="confirmPin()" [disabled]="!pinName.trim()" class="pm-btn pm-btn--primary pm-btn--sm">Save</button>
+            <button (click)="cancelPin()" class="pm-btn pm-btn--default pm-btn--sm">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Schedule Dialog -->
+      <div *ngIf="scheduleDialogOpen" class="pm-dialog-overlay">
+        <div class="pm-dialog">
+          <h3 class="pm-dialog__title">&#128337; Schedule Report</h3>
+          <p class="pm-dialog__desc">Email this query's results on a recurring schedule.</p>
+          <label class="pm-label">Report Name</label>
+          <input [(ngModel)]="scheduleForm.name" class="pm-input pm-input--full" placeholder="e.g. Weekly Arrears" />
+          <label class="pm-label" style="margin-top:10px">Recipient Email</label>
+          <input [(ngModel)]="scheduleForm.recipientEmail" class="pm-input pm-input--full" placeholder="you@example.com" type="email" />
+          <label class="pm-label" style="margin-top:10px">Frequency</label>
+          <select [(ngModel)]="scheduleForm.schedule" class="pm-context-select pm-input--full" style="width:100%">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+          <div class="pm-dialog__actions">
+            <button (click)="confirmSchedule()"
+              [disabled]="!scheduleForm.name.trim() || !scheduleForm.recipientEmail.trim()"
+              class="pm-btn pm-btn--primary pm-btn--sm">Create</button>
+            <button (click)="cancelSchedule()" class="pm-btn pm-btn--default pm-btn--sm">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- ============ DASHBOARD TAB ============ -->
+    <ng-container *ngIf="activeTab === 'dashboard'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">Pinned Queries</h1>
+          <p class="pm-page-desc">Your saved queries and scheduled email reports</p>
+        </div>
+      </div>
+
+      <!-- Saved Queries -->
+      <div class="pm-card">
+        <div class="pm-card__label">Pinned Queries</div>
+        <div *ngIf="savedQueries.length === 0" class="pm-empty" style="padding:16px 0">
+          No pinned queries yet. Run a query and click &#128204; Pin to save it here.
+        </div>
+        <div class="pm-saved-list">
+          <div *ngFor="let q of savedQueries" class="pm-saved-item">
+            <div class="pm-saved-item__info">
+              <div class="pm-saved-item__name">{{ q.name }}</div>
+              <div class="pm-saved-item__question">{{ q.question }}</div>
+              <div class="pm-saved-item__meta">
+                <span class="pm-badge">{{ q.role }}</span>
+                <span class="pm-badge pm-badge--muted">{{ q.createdAtUtc | date:'mediumDate' }}</span>
+              </div>
+            </div>
+            <div class="pm-saved-item__actions">
+              <button (click)="runSavedQuery(q)" class="pm-btn pm-btn--primary pm-btn--sm">Run</button>
+              <button (click)="deleteSavedQuery(q.id)" class="pm-btn pm-btn--danger pm-btn--sm">Remove</button>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- SQL Panel -->
-      <div *ngIf="showSql && response.generatedSql" class="pm-sql-panel">
-        <div class="pm-sql-panel__label">Generated SQL</div>
-        <pre class="pm-sql-code">{{ response.generatedSql }}</pre>
+      <!-- Scheduled Reports -->
+      <div class="pm-card">
+        <div class="pm-card__label">Scheduled Email Reports</div>
+        <div *ngIf="scheduledReports.length === 0" class="pm-empty" style="padding:16px 0">
+          No scheduled reports. Run a query and click &#128337; Schedule to create one.
+        </div>
+        <div class="pm-saved-list">
+          <div *ngFor="let r of scheduledReports" class="pm-saved-item">
+            <div class="pm-saved-item__info">
+              <div class="pm-saved-item__name">{{ r.name }}</div>
+              <div class="pm-saved-item__question">{{ r.question }}</div>
+              <div class="pm-saved-item__meta">
+                <span class="pm-badge">{{ r.schedule }}</span>
+                <span class="pm-badge pm-badge--muted">{{ r.recipientEmail }}</span>
+                <span *ngIf="r.nextRunAtUtc" class="pm-badge pm-badge--info">
+                  Next: {{ r.nextRunAtUtc | date:'mediumDate' }}
+                </span>
+              </div>
+            </div>
+            <div class="pm-saved-item__actions">
+              <button (click)="deleteScheduledReport(r.id)" class="pm-btn pm-btn--danger pm-btn--sm">Remove</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- ============ ANALYTICS TAB ============ -->
+    <ng-container *ngIf="activeTab === 'analytics'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">Query Analytics</h1>
+          <p class="pm-page-desc">Usage stats for the last 30 days</p>
+        </div>
+        <button (click)="loadAnalytics()" [disabled]="analyticsLoading" class="pm-btn pm-btn--default pm-btn--sm">
+          Refresh
+        </button>
       </div>
 
-      <div *ngIf="response.rows && response.rows.length > 0" class="pm-table-wrap">
-        <table class="pm-table">
-          <thead>
-            <tr>
-              <th *ngFor="let col of getColumnKeys()">{{ col }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let row of response.rows">
-              <td *ngFor="let col of getColumnKeys()">
-                {{ row[col] !== null && row[col] !== undefined ? row[col] : '—' }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <div *ngIf="analyticsLoading" class="pm-empty">Loading analytics…</div>
 
-      <div *ngIf="!response.rows || response.rows.length === 0" class="pm-empty">
-        No results found for this query.
-      </div>
-    </div>
+      <ng-container *ngIf="analytics && !analyticsLoading">
+        <!-- KPI cards -->
+        <div class="pm-kpi-row">
+          <div class="pm-kpi-card">
+            <div class="pm-kpi-card__value">{{ analytics.totalQueries }}</div>
+            <div class="pm-kpi-card__label">Total Queries</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--success">
+            <div class="pm-kpi-card__value">{{ analytics.successfulQueries }}</div>
+            <div class="pm-kpi-card__label">Successful</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--danger">
+            <div class="pm-kpi-card__value">{{ analytics.failedQueries }}</div>
+            <div class="pm-kpi-card__label">Failed</div>
+          </div>
+          <div class="pm-kpi-card">
+            <div class="pm-kpi-card__value">{{ analytics.avgExecutionMs | number:'1.0-0' }}ms</div>
+            <div class="pm-kpi-card__label">Avg Response</div>
+          </div>
+        </div>
+
+        <!-- Domain breakdown chart -->
+        <div class="pm-card" *ngIf="analytics.domainBreakdown.length > 0">
+          <div class="pm-card__label">Queries by Domain</div>
+          <div class="pm-chart">
+            <div *ngFor="let d of analytics.domainBreakdown" class="pm-chart-row">
+              <span class="pm-chart-label">{{ d.domain }}</span>
+              <div class="pm-chart-bar-wrap">
+                <div class="pm-chart-bar" [style.width.%]="(d.count / getAnalyticsMaxDomain()) * 100"></div>
+                <span class="pm-chart-val">{{ d.count }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent queries table -->
+        <div class="pm-card" *ngIf="analytics.recentQueries.length > 0">
+          <div class="pm-card__label">Recent Queries</div>
+          <div class="pm-table-wrap">
+            <table class="pm-table">
+              <thead>
+                <tr>
+                  <th>Question</th>
+                  <th>Domain</th>
+                  <th>Status</th>
+                  <th>Time (ms)</th>
+                  <th>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let q of analytics.recentQueries">
+                  <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" [title]="q.question">{{ q.question }}</td>
+                  <td><span class="pm-badge pm-badge--primary">{{ q.domain }}</span></td>
+                  <td><span class="pm-badge" [class.pm-badge--success]="q.status === 'ok'" [class.pm-badge--danger]="q.status !== 'ok' && q.status !== 'clarification_needed'">{{ q.status }}</span></td>
+                  <td>{{ q.executionMs }}</td>
+                  <td>{{ q.createdAtUtc | date:'short' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </ng-container>
+    </ng-container>
+
   </main>
 
 </div>
