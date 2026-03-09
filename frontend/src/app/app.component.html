@@ -281,62 +281,155 @@
 
     <!-- ============ DASHBOARD TAB ============ -->
     <ng-container *ngIf="activeTab === 'dashboard'">
+
+      <!-- Header -->
       <div class="pm-page-header">
         <div>
-          <h1 class="pm-page-title">Pinned Queries</h1>
-          <p class="pm-page-desc">Your saved queries and scheduled email reports</p>
+          <h1 class="pm-page-title">Conversational Dashboard</h1>
+          <p class="pm-page-desc">Ask to add, change, or remove widgets — all in plain English</p>
         </div>
+        <button *ngIf="widgets.length > 0" (click)="widgets = []" class="pm-btn pm-btn--default pm-btn--sm">
+          Clear All
+        </button>
       </div>
 
-      <!-- Saved Queries -->
-      <div class="pm-card">
-        <div class="pm-card__label">Pinned Queries</div>
-        <div *ngIf="savedQueries.length === 0" class="pm-empty" style="padding:16px 0">
-          No pinned queries yet. Run a query and click &#128204; Pin to save it here.
+      <!-- Empty state -->
+      <div *ngIf="widgets.length === 0" class="pm-dash-empty">
+        <div class="pm-dash-empty__icon">&#128202;</div>
+        <p class="pm-dash-empty__title">Your dashboard is empty</p>
+        <p class="pm-dash-empty__hint">Type a question below or click an example to add a widget</p>
+        <div class="pm-examples">
+          <button *ngFor="let ex of examples" class="pm-example-btn" (click)="addWidget(ex.query)">
+            {{ ex.label }}
+          </button>
         </div>
-        <div class="pm-saved-list">
-          <div *ngFor="let q of savedQueries" class="pm-saved-item">
-            <div class="pm-saved-item__info">
-              <div class="pm-saved-item__name">{{ q.name }}</div>
-              <div class="pm-saved-item__question">{{ q.question }}</div>
-              <div class="pm-saved-item__meta">
-                <span class="pm-badge">{{ q.role }}</span>
-                <span class="pm-badge pm-badge--muted">{{ q.createdAtUtc | date:'mediumDate' }}</span>
+
+        <!-- Saved queries as quick-add -->
+        <ng-container *ngIf="savedQueries.length > 0">
+          <p class="pm-dash-empty__hint" style="margin-top:20px">Or add from your pinned queries:</p>
+          <div class="pm-examples">
+            <button *ngFor="let q of savedQueries" class="pm-example-btn pm-example-btn--pinned"
+              (click)="addSavedAsWidget(q)" [title]="q.question">
+              &#128204; {{ q.name }}
+            </button>
+          </div>
+        </ng-container>
+      </div>
+
+      <!-- Widget grid -->
+      <div *ngIf="widgets.length > 0" class="pm-widget-grid">
+        <div *ngFor="let w of widgets" class="pm-widget"
+          [class.pm-widget--wide]="w.viewType === 'table' && (w.response?.columns?.length || 0) > 4">
+
+          <!-- Widget header -->
+          <div class="pm-widget__header">
+            <span class="pm-widget__title" [title]="w.question">{{ w.title }}</span>
+            <div class="pm-widget__controls">
+              <ng-container *ngIf="!w.loading && !w.error && w.response?.status === 'ok'">
+                <button (click)="setWidgetView(w, 'kpi')"
+                  [class.pm-wv-active]="w.viewType === 'kpi'"
+                  class="pm-wv-btn" title="KPI">&#11035;</button>
+                <button (click)="setWidgetView(w, 'chart')"
+                  [class.pm-wv-active]="w.viewType === 'chart'"
+                  class="pm-wv-btn" title="Chart">&#9641;</button>
+                <button (click)="setWidgetView(w, 'table')"
+                  [class.pm-wv-active]="w.viewType === 'table'"
+                  class="pm-wv-btn" title="Table">&#8803;</button>
+                <span class="pm-wctrl-sep"></span>
+                <button (click)="exportCsv(w.response)" class="pm-wctrl-btn" title="Export CSV">&#8659;</button>
+                <button (click)="pinWidget(w)" class="pm-wctrl-btn" title="Pin to saved queries">&#128204;</button>
+                <button (click)="drillDown(w)" class="pm-wctrl-btn" title="Open in Query tab">&#8599;</button>
+              </ng-container>
+              <button (click)="refreshWidget(w)" [disabled]="w.loading" class="pm-wctrl-btn" title="Refresh">&#8635;</button>
+              <button (click)="removeWidget(w.id)" class="pm-wctrl-btn pm-wctrl-btn--close" title="Remove">&#10005;</button>
+            </div>
+          </div>
+
+          <!-- Widget body -->
+          <div class="pm-widget__body">
+
+            <!-- Loading -->
+            <div *ngIf="w.loading" class="pm-widget-state">
+              <span class="pm-spinner"></span> Running query…
+            </div>
+
+            <!-- Error -->
+            <div *ngIf="!w.loading && w.error" class="pm-widget-state pm-widget-state--error">
+              &#9888; {{ w.error }}
+            </div>
+
+            <!-- KPI -->
+            <div *ngIf="!w.loading && !w.error && w.viewType === 'kpi'" class="pm-widget-kpi">
+              <div class="pm-widget-kpi__value">{{ getWidgetKpi(w) }}</div>
+              <div class="pm-widget-kpi__label">{{ getColumnKeys(w.response)[0] }}</div>
+            </div>
+
+            <!-- Chart -->
+            <ng-container *ngIf="!w.loading && !w.error && w.viewType === 'chart'">
+              <ng-container *ngIf="getChartData(w.response) as rows">
+                <div class="pm-widget-chart">
+                  <div *ngFor="let row of rows" class="pm-chart-row">
+                    <span class="pm-chart-label" [title]="row.label">{{ row.label }}</span>
+                    <div class="pm-chart-bar-wrap">
+                      <div class="pm-chart-bar" [style.width.%]="row.pct"></div>
+                      <span class="pm-chart-val">{{ row.value | number }}</span>
+                    </div>
+                  </div>
+                </div>
+              </ng-container>
+              <div *ngIf="!getChartData(w.response)" class="pm-widget-state pm-widget-state--warn">
+                No chartable columns — try Table view
               </div>
+            </ng-container>
+
+            <!-- Table -->
+            <div *ngIf="!w.loading && !w.error && w.viewType === 'table'">
+              <div *ngIf="w.response?.rows?.length" class="pm-table-wrap">
+                <table class="pm-table pm-table--sm">
+                  <thead>
+                    <tr><th *ngFor="let col of getColumnKeys(w.response)">{{ col }}</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr *ngFor="let row of w.response!.rows!.slice(0, 25)">
+                      <td *ngFor="let col of getColumnKeys(w.response)">
+                        {{ row[col] !== null && row[col] !== undefined ? row[col] : '—' }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div *ngIf="w.response?.rowCount && w.response!.rowCount! > 25" class="pm-widget-more">
+                Showing 25 of {{ w.response!.rowCount }} —
+                <a href="javascript:void(0)" (click)="drillDown(w)">open in Query tab</a>
+              </div>
+              <div *ngIf="!w.response?.rows?.length" class="pm-widget-state">No results</div>
             </div>
-            <div class="pm-saved-item__actions">
-              <button (click)="runSavedQuery(q)" class="pm-btn pm-btn--primary pm-btn--sm">Run</button>
-              <button (click)="deleteSavedQuery(q.id)" class="pm-btn pm-btn--danger pm-btn--sm">Remove</button>
-            </div>
+
           </div>
         </div>
       </div>
 
-      <!-- Scheduled Reports -->
-      <div class="pm-card">
-        <div class="pm-card__label">Scheduled Email Reports</div>
-        <div *ngIf="scheduledReports.length === 0" class="pm-empty" style="padding:16px 0">
-          No scheduled reports. Run a query and click &#128337; Schedule to create one.
+      <!-- Conversational input bar -->
+      <div class="pm-dash-bar">
+        <div *ngIf="widgets.length > 0" class="pm-dash-bar__hints">
+          <span>Try:</span>
+          <code>"show arrears as chart"</code>
+          <code>"remove expiring leases"</code>
+          <code>"refresh all"</code>
+          <code>"show as kpi"</code>
         </div>
-        <div class="pm-saved-list">
-          <div *ngFor="let r of scheduledReports" class="pm-saved-item">
-            <div class="pm-saved-item__info">
-              <div class="pm-saved-item__name">{{ r.name }}</div>
-              <div class="pm-saved-item__question">{{ r.question }}</div>
-              <div class="pm-saved-item__meta">
-                <span class="pm-badge">{{ r.schedule }}</span>
-                <span class="pm-badge pm-badge--muted">{{ r.recipientEmail }}</span>
-                <span *ngIf="r.nextRunAtUtc" class="pm-badge pm-badge--info">
-                  Next: {{ r.nextRunAtUtc | date:'mediumDate' }}
-                </span>
-              </div>
-            </div>
-            <div class="pm-saved-item__actions">
-              <button (click)="deleteScheduledReport(r.id)" class="pm-btn pm-btn--danger pm-btn--sm">Remove</button>
-            </div>
-          </div>
+        <div class="pm-dash-bar__row">
+          <input [(ngModel)]="dashboardInput"
+            (keydown.enter)="processDashboardInput()"
+            placeholder="Add a widget, change a view, or say 'refresh all'…"
+            class="pm-dash-input" />
+          <button (click)="processDashboardInput()" [disabled]="!dashboardInput.trim()"
+            class="pm-btn pm-btn--primary">
+            Go
+          </button>
         </div>
       </div>
+
     </ng-container>
 
     <!-- ============ ANALYTICS TAB ============ -->

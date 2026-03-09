@@ -15,6 +15,16 @@ export interface ConversationTurn {
 
 export interface ChartRow { label: string; value: number; pct: number; }
 
+export interface DashboardWidget {
+  id: string;
+  title: string;
+  question: string;
+  viewType: "kpi" | "chart" | "table";
+  response?: QueryResponse;
+  loading: boolean;
+  error?: string;
+}
+
 @Component({
   selector: "app-root",
   standalone: true,
@@ -64,22 +74,27 @@ export class AppComponent implements OnInit, OnDestroy {
     { label: "Financial Summary", query: "Show total income summary by owner" },
   ];
 
-  /** Phase 3: active tab */
+  /** Active tab */
   activeTab: "query" | "dashboard" | "analytics" = "query";
 
-  /** Phase 3: saved/pinned queries */
+  /** Saved/pinned queries (DB-backed) */
   savedQueries: SavedQueryDto[] = [];
   pinDialogOpen: boolean = false;
   pinName: string = "";
 
-  /** Phase 3: scheduled reports */
+  /** Scheduled reports */
   scheduledReports: ScheduledReportDto[] = [];
   scheduleDialogOpen: boolean = false;
   scheduleForm = { name: "", recipientEmail: "", schedule: "daily" };
 
-  /** Phase 3: analytics */
+  /** Analytics */
   analytics: AnalyticsSummary | null = null;
   analyticsLoading: boolean = false;
+
+  /** Conversational dashboard */
+  widgets: DashboardWidget[] = [];
+  dashboardInput: string = "";
+  private dashboardConvId: string = this.newId();
 
   constructor(private queryService: QueryService, private dashboardService: DashboardService) {}
 
@@ -92,16 +107,163 @@ export class AppComponent implements OnInit, OnDestroy {
     this.querySub?.unsubscribe();
   }
 
-  /** Phase 3: tab navigation */
   switchTab(tab: "query" | "dashboard" | "analytics"): void {
     this.activeTab = tab;
-    if (tab === "analytics" && !this.analytics) {
-      this.loadAnalytics();
+    if (tab === "analytics" && !this.analytics) this.loadAnalytics();
+    if (tab === "dashboard") this.loadSavedQueries();
+  }
+
+  // ─── Conversational Dashboard ────────────────────────────────────────────────
+
+  processDashboardInput(): void {
+    const raw = this.dashboardInput.trim();
+    if (!raw) return;
+    this.dashboardInput = "";
+    const lower = raw.toLowerCase();
+
+    // clear / clear all
+    if (/^clear(\s+(all|dashboard))?$/.test(lower)) {
+      this.widgets = [];
+      return;
     }
-    if (tab === "dashboard") {
-      this.loadSavedQueries();
-      this.loadScheduledReports();
+
+    // refresh all
+    if (/^refresh\s+all$/.test(lower)) {
+      this.widgets.forEach(w => this.refreshWidget(w));
+      return;
     }
+
+    // refresh <name>
+    const refreshNamed = lower.match(/^refresh\s+(.+)$/);
+    if (refreshNamed) {
+      const w = this.findWidgetByName(refreshNamed[1]);
+      if (w) { this.refreshWidget(w); return; }
+    }
+
+    // remove / delete / hide <name>
+    const removeMatch = lower.match(/^(remove|delete|hide)\s+(.+)$/);
+    if (removeMatch) {
+      this.removeWidgetByName(removeMatch[2]);
+      return;
+    }
+
+    // "show as chart/table/kpi"  → change last widget
+    const showAsLast = lower.match(/^show\s+as\s+(chart|table|kpi)$/);
+    if (showAsLast) {
+      if (this.widgets.length)
+        this.widgets[this.widgets.length - 1].viewType = showAsLast[1] as "chart" | "table" | "kpi";
+      return;
+    }
+
+    // "show <name> as chart/table/kpi"  or  "<name> as chart/table/kpi"
+    const namedView = lower.match(/^(?:show\s+)?(.+?)\s+as\s+(chart|table|kpi)$/);
+    if (namedView) {
+      const w = this.findWidgetByName(namedView[1]);
+      if (w) { w.viewType = namedView[2] as "chart" | "table" | "kpi"; return; }
+    }
+
+    // default: treat as NL query → add widget
+    this.addWidget(raw);
+  }
+
+  addWidget(question: string): void {
+    const widget: DashboardWidget = {
+      id: this.newId(),
+      title: question.length > 55 ? question.slice(0, 52) + "…" : question,
+      question,
+      viewType: "table",
+      loading: true,
+    };
+    this.widgets = [...this.widgets, widget];
+    this.queryService
+      .executeQuery(question, this.dashboardConvId, this.selectedCustomerId, this.selectedRole)
+      .subscribe({
+        next: (response: QueryResponse) => {
+          widget.response = response;
+          widget.loading = false;
+          if (response.status === "ok") {
+            widget.viewType = this.detectWidgetType(response);
+          } else {
+            widget.error = response.message || "Query failed";
+          }
+        },
+        error: (err: { error?: { message?: string }; message?: string }) => {
+          widget.loading = false;
+          widget.error = err.error?.message || err.message || "Failed";
+        },
+      });
+  }
+
+  refreshWidget(widget: DashboardWidget): void {
+    widget.loading = true;
+    widget.error = undefined;
+    this.queryService
+      .executeQuery(widget.question, this.dashboardConvId, this.selectedCustomerId, this.selectedRole)
+      .subscribe({
+        next: (response: QueryResponse) => {
+          widget.response = response;
+          widget.loading = false;
+          widget.error = response.status !== "ok" ? (response.message || "Query failed") : undefined;
+        },
+        error: (err: { error?: { message?: string }; message?: string }) => {
+          widget.loading = false;
+          widget.error = err.error?.message || err.message || "Failed";
+        },
+      });
+  }
+
+  removeWidget(id: string): void {
+    this.widgets = this.widgets.filter(w => w.id !== id);
+  }
+
+  setWidgetView(widget: DashboardWidget, type: "kpi" | "chart" | "table"): void {
+    widget.viewType = type;
+  }
+
+  detectWidgetType(response: QueryResponse): "kpi" | "chart" | "table" {
+    const keys = this.getColumnKeys(response);
+    if (response.rows?.length === 1 && keys.length === 1) return "kpi";
+    if ((this.getChartData(response) ?? []).length > 0) return "chart";
+    return "table";
+  }
+
+  getWidgetKpi(widget: DashboardWidget): string {
+    if (!widget.response?.rows?.length) return "—";
+    const keys = this.getColumnKeys(widget.response);
+    const val = widget.response.rows[0][keys[0]];
+    return val != null ? String(val) : "—";
+  }
+
+  drillDown(widget: DashboardWidget): void {
+    this.activeTab = "query";
+    this.loadExample(widget.question);
+    this.runQuery(widget.question);
+  }
+
+  pinWidget(widget: DashboardWidget): void {
+    this.dashboardService.saveQuery(
+      { name: widget.title, question: widget.question, role: this.selectedRole },
+      this.selectedCustomerId
+    ).subscribe({
+      next: (saved: SavedQueryDto) => { this.savedQueries = [saved, ...this.savedQueries]; },
+      error: () => {},
+    });
+  }
+
+  addSavedAsWidget(q: SavedQueryDto): void {
+    this.addWidget(q.question);
+  }
+
+  private removeWidgetByName(name: string): void {
+    const w = this.findWidgetByName(name);
+    if (w) this.removeWidget(w.id);
+  }
+
+  private findWidgetByName(name: string): DashboardWidget | undefined {
+    const lower = name.toLowerCase();
+    return this.widgets.find(
+      w => w.title.toLowerCase().includes(lower) || w.question.toLowerCase().includes(lower)
+    );
   }
 
   /** Phase 3: pin current query */
