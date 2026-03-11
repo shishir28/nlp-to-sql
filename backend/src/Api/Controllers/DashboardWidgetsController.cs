@@ -49,6 +49,17 @@ public class DashboardWidgetsController : ControllerBase
         return NoContent();
     }
 
+    [HttpPatch("{id:int}/order")]
+    public async Task<IActionResult> UpdateOrder(
+        int id,
+        [FromBody] UpdateWidgetOrderRequest request,
+        [FromQuery] string customerId = "1",
+        CancellationToken cancellationToken = default)
+    {
+        await _repo.UpdateSortOrderAsync(id, customerId, request.SortOrder, cancellationToken);
+        return NoContent();
+    }
+
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(
         int id,

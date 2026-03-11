@@ -5,6 +5,7 @@ import { Subscription } from "rxjs";
 import { QueryService, StreamEvent } from "./query.service";
 import { QueryResponse } from "./models";
 import { DashboardService, SavedQueryDto, AnalyticsSummary, ScheduledReportDto, DashboardWidgetRecord } from "./dashboard.service";
+import { ChartWidgetComponent } from "./chart-widget.component";
 
 export interface ConversationTurn {
   question: string;
@@ -15,12 +16,20 @@ export interface ConversationTurn {
 
 export interface ChartRow { label: string; value: number; pct: number; }
 
+export type WidgetViewType = "kpi" | "table" | "chart" | "line" | "pie" | "donut" | "scatter" | "heatmap";
+
+export interface HeatmapData {
+  rowLabels: string[];
+  colLabels: string[];
+  cells: { value: number; intensity: number }[][];
+}
+
 export interface DashboardWidget {
-  id: string;           // local UUID (used for Angular tracking)
-  dbId?: number;        // DB row id once persisted
+  id: string;
+  dbId?: number;
   title: string;
   question: string;
-  viewType: "kpi" | "chart" | "table";
+  viewType: WidgetViewType;
   response?: QueryResponse;
   loading: boolean;
   error?: string;
@@ -29,7 +38,7 @@ export interface DashboardWidget {
 @Component({
   selector: "app-root",
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ChartWidgetComponent],
   templateUrl: "./app.component.html",
   styleUrls: ["./app.component.scss"],
 })
@@ -96,6 +105,10 @@ export class AppComponent implements OnInit, OnDestroy {
   widgets: DashboardWidget[] = [];
   dashboardInput: string = "";
   private dashboardConvId: string = this.newId();
+
+  /** Drag-to-reorder state */
+  dragSourceId: string | null = null;
+  dragOverId: string | null = null;
 
   constructor(private queryService: QueryService, private dashboardService: DashboardService) {}
 
@@ -280,10 +293,16 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
-  detectWidgetType(response: QueryResponse): "kpi" | "chart" | "table" {
+  detectWidgetType(response: QueryResponse): WidgetViewType {
     const keys = this.getColumnKeys(response);
-    if (response.rows?.length === 1 && keys.length === 1) return "kpi";
-    if ((this.getChartData(response) ?? []).length > 0) return "chart";
+    const rows = response.rows ?? [];
+    if (rows.length === 1 && keys.length === 1) return "kpi";
+    // 2+ numeric cols → scatter
+    const numCols = keys.filter(k => rows.every(r => !isNaN(Number(r[k])) && r[k] !== null));
+    if (numCols.length >= 2 && keys.length === numCols.length) return "scatter";
+    // Chartable: 2-8 rows → donut; more → bar
+    const chartRows = this.getChartData(response) ?? [];
+    if (chartRows.length > 0) return rows.length <= 8 ? "donut" : "chart";
     return "table";
   }
 
@@ -324,6 +343,134 @@ export class AppComponent implements OnInit, OnDestroy {
     return this.widgets.find(
       w => w.title.toLowerCase().includes(lower) || w.question.toLowerCase().includes(lower)
     );
+  }
+
+  // ─── Drag-to-reorder ────────────────────────────────────────────────────────
+
+  onDragStart(id: string, event: DragEvent): void {
+    this.dragSourceId = id;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", id);
+    }
+  }
+
+  onDragOver(id: string, event: DragEvent): void {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    this.dragOverId = id;
+  }
+
+  onDrop(targetId: string, event: DragEvent): void {
+    event.preventDefault();
+    if (!this.dragSourceId || this.dragSourceId === targetId) {
+      this.dragSourceId = null; this.dragOverId = null; return;
+    }
+    const from = this.widgets.findIndex(w => w.id === this.dragSourceId);
+    const to   = this.widgets.findIndex(w => w.id === targetId);
+    const reordered = [...this.widgets];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    this.widgets = reordered;
+    this.dragSourceId = null;
+    this.dragOverId = null;
+    // Persist new sort orders
+    reordered.forEach((w, idx) => {
+      if (w.dbId) {
+        this.dashboardService.updateWidgetOrder(w.dbId, idx, this.selectedCustomerId)
+          .subscribe({ error: () => {} });
+      }
+    });
+  }
+
+  onDragEnd(): void {
+    this.dragSourceId = null;
+    this.dragOverId = null;
+  }
+
+  // ─── Chart.js data preparation ───────────────────────────────────────────────
+
+  isChartJsType(type: WidgetViewType): boolean {
+    return ["chart", "line", "pie", "donut", "scatter"].includes(type);
+  }
+
+  toChartJsType(type: WidgetViewType): string {
+    const map: Record<string, string> = {
+      chart: "bar", line: "line", pie: "pie", donut: "doughnut", scatter: "scatter",
+    };
+    return map[type] ?? "bar";
+  }
+
+  getChartJsData(response: QueryResponse | undefined, type: WidgetViewType): unknown {
+    if (!response?.rows?.length) return null;
+    const keys = this.getColumnKeys(response);
+
+    if (type === "scatter") {
+      const numCols = keys.filter(k =>
+        response.rows!.every(r => r[k] !== null && r[k] !== undefined && !isNaN(Number(r[k])))
+      );
+      if (numCols.length < 2) return null;
+      return {
+        datasets: [{
+          label: `${numCols[0]} vs ${numCols[1]}`,
+          data: response.rows.map(r => ({ x: Number(r[numCols[0]]), y: Number(r[numCols[1]]) })),
+          backgroundColor: "rgba(30,125,200,0.65)",
+          pointRadius: 5,
+        }],
+      };
+    }
+
+    const chartRows = this.getChartData(response);
+    if (!chartRows?.length) return null;
+
+    const palette = chartRows.map((_, i) => `hsl(${(i * 47 + 200) % 360},60%,55%)`);
+
+    if (type === "pie" || type === "donut") {
+      return {
+        labels: chartRows.map(r => r.label),
+        datasets: [{ data: chartRows.map(r => r.value), backgroundColor: palette, borderWidth: 1 }],
+      };
+    }
+
+    // bar (chart) or line
+    return {
+      labels: chartRows.map(r => r.label),
+      datasets: [{
+        label: keys.find(k => response.rows!.every(r => !isNaN(Number(r[k])))) ?? "Value",
+        data: chartRows.map(r => r.value),
+        backgroundColor: type === "line" ? "rgba(30,125,200,0.15)" : palette,
+        borderColor: type === "line" ? "#1e7dc8" : palette,
+        borderWidth: type === "line" ? 2 : 1,
+        tension: 0.3,
+        fill: type === "line",
+        pointRadius: type === "line" ? 3 : 0,
+      }],
+    };
+  }
+
+  // ─── Heatmap ─────────────────────────────────────────────────────────────────
+
+  getHeatmapData(response: QueryResponse | undefined): HeatmapData | null {
+    if (!response?.rows?.length) return null;
+    const keys = this.getColumnKeys(response);
+    if (keys.length < 3) return null;
+
+    const [rowKey, colKey, valKey] = keys;
+    if (!response.rows.every(r => !isNaN(Number(r[valKey])))) return null;
+
+    const rowLabels = [...new Set(response.rows.map(r => String(r[rowKey] ?? "")))];
+    const colLabels = [...new Set(response.rows.map(r => String(r[colKey] ?? "")))];
+    const valueMap = new Map<string, number>();
+    response.rows.forEach(r => valueMap.set(`${r[rowKey]}|||${r[colKey]}`, Number(r[valKey])));
+
+    const maxVal = Math.max(...[...valueMap.values()], 1);
+    const cells = rowLabels.map(row =>
+      colLabels.map(col => {
+        const value = valueMap.get(`${row}|||${col}`) ?? 0;
+        return { value, intensity: Math.round((value / maxVal) * 100) };
+      })
+    );
+    return { rowLabels, colLabels, cells };
   }
 
   /** Phase 3: pin current query */

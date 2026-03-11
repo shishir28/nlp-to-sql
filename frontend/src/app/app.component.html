@@ -319,22 +319,30 @@
       <!-- Widget grid -->
       <div *ngIf="widgets.length > 0" class="pm-widget-grid">
         <div *ngFor="let w of widgets" class="pm-widget"
-          [class.pm-widget--wide]="w.viewType === 'table' && (w.response?.columns?.length || 0) > 4">
+          [class.pm-widget--wide]="w.viewType === 'table' && (w.response?.columns?.length || 0) > 4"
+          [class.pm-widget--dragging]="dragSourceId === w.id"
+          [class.pm-widget--drag-over]="dragOverId === w.id && dragSourceId !== w.id"
+          draggable="true"
+          (dragstart)="onDragStart(w.id, $event)"
+          (dragover)="onDragOver(w.id, $event)"
+          (drop)="onDrop(w.id, $event)"
+          (dragend)="onDragEnd()">
 
           <!-- Widget header -->
           <div class="pm-widget__header">
+            <span class="pm-widget__drag-handle" title="Drag to reorder">&#8942;&#8942;</span>
             <span class="pm-widget__title" [title]="w.question">{{ w.title }}</span>
             <div class="pm-widget__controls">
               <ng-container *ngIf="!w.loading && !w.error && w.response?.status === 'ok'">
-                <button (click)="setWidgetView(w, 'kpi')"
-                  [class.pm-wv-active]="w.viewType === 'kpi'"
-                  class="pm-wv-btn" title="KPI">&#11035;</button>
-                <button (click)="setWidgetView(w, 'chart')"
-                  [class.pm-wv-active]="w.viewType === 'chart'"
-                  class="pm-wv-btn" title="Chart">&#9641;</button>
-                <button (click)="setWidgetView(w, 'table')"
-                  [class.pm-wv-active]="w.viewType === 'table'"
-                  class="pm-wv-btn" title="Table">&#8803;</button>
+                <!-- View type buttons -->
+                <button (click)="setWidgetView(w,'kpi')"   [class.pm-wv-active]="w.viewType==='kpi'"     class="pm-wv-btn" title="KPI">&#x23;  </button>
+                <button (click)="setWidgetView(w,'chart')" [class.pm-wv-active]="w.viewType==='chart'"   class="pm-wv-btn" title="Bar">&#9641;</button>
+                <button (click)="setWidgetView(w,'line')"  [class.pm-wv-active]="w.viewType==='line'"    class="pm-wv-btn" title="Line">&#8767;</button>
+                <button (click)="setWidgetView(w,'pie')"   [class.pm-wv-active]="w.viewType==='pie'"     class="pm-wv-btn" title="Pie">&#9685;</button>
+                <button (click)="setWidgetView(w,'donut')" [class.pm-wv-active]="w.viewType==='donut'"   class="pm-wv-btn" title="Donut">&#9678;</button>
+                <button (click)="setWidgetView(w,'scatter')" [class.pm-wv-active]="w.viewType==='scatter'" class="pm-wv-btn" title="Scatter">&#8943;</button>
+                <button (click)="setWidgetView(w,'heatmap')" [class.pm-wv-active]="w.viewType==='heatmap'" class="pm-wv-btn" title="Heatmap">&#9638;</button>
+                <button (click)="setWidgetView(w,'table')" [class.pm-wv-active]="w.viewType==='table'"   class="pm-wv-btn" title="Table">&#8803;</button>
                 <span class="pm-wctrl-sep"></span>
                 <button (click)="exportCsv(w.response)" class="pm-wctrl-btn" title="Export CSV">&#8659;</button>
                 <button (click)="pinWidget(w)" class="pm-wctrl-btn" title="Pin to saved queries">&#128204;</button>
@@ -364,21 +372,43 @@
               <div class="pm-widget-kpi__label">{{ getColumnKeys(w.response)[0] }}</div>
             </div>
 
-            <!-- Chart -->
-            <ng-container *ngIf="!w.loading && !w.error && w.viewType === 'chart'">
-              <ng-container *ngIf="getChartData(w.response) as rows">
-                <div class="pm-widget-chart">
-                  <div *ngFor="let row of rows" class="pm-chart-row">
-                    <span class="pm-chart-label" [title]="row.label">{{ row.label }}</span>
-                    <div class="pm-chart-bar-wrap">
-                      <div class="pm-chart-bar" [style.width.%]="row.pct"></div>
-                      <span class="pm-chart-val">{{ row.value | number }}</span>
-                    </div>
-                  </div>
+            <!-- Chart.js charts: bar, line, pie, donut, scatter -->
+            <ng-container *ngIf="!w.loading && !w.error && isChartJsType(w.viewType)">
+              <ng-container *ngIf="getChartJsData(w.response, w.viewType) as data">
+                <pm-chart-widget [chartType]="toChartJsType(w.viewType)" [chartData]="data"></pm-chart-widget>
+              </ng-container>
+              <div *ngIf="!getChartJsData(w.response, w.viewType)" class="pm-widget-state pm-widget-state--warn">
+                Not enough data for this chart type — try Table
+              </div>
+            </ng-container>
+
+            <!-- Heatmap -->
+            <ng-container *ngIf="!w.loading && !w.error && w.viewType === 'heatmap'">
+              <ng-container *ngIf="getHeatmapData(w.response) as hm">
+                <div class="pm-heatmap-wrap">
+                  <table class="pm-heatmap">
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th *ngFor="let col of hm.colLabels" class="pm-heatmap-label">{{ col }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let row of hm.cells; let i = index">
+                        <td class="pm-heatmap-label pm-heatmap-row-label">{{ hm.rowLabels[i] }}</td>
+                        <td *ngFor="let cell of row" class="pm-heatmap-cell"
+                          [style.background]="'rgba(30,125,200,' + (cell.intensity / 100) + ')'"
+                          [style.color]="cell.intensity > 55 ? '#fff' : '#111'"
+                          [title]="cell.value">
+                          {{ cell.value || '' }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </ng-container>
-              <div *ngIf="!getChartData(w.response)" class="pm-widget-state pm-widget-state--warn">
-                No chartable columns — try Table view
+              <div *ngIf="!getHeatmapData(w.response)" class="pm-widget-state pm-widget-state--warn">
+                Heatmap needs 2 category columns + 1 numeric — try Table
               </div>
             </ng-container>
 

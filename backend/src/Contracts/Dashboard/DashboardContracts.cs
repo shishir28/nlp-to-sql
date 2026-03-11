@@ -23,6 +23,11 @@ public sealed class UpdateWidgetViewRequest
     public string ViewType { get; init; } = "table";
 }
 
+public sealed class UpdateWidgetOrderRequest
+{
+    public int SortOrder { get; init; }
+}
+
 public sealed class SavedQueryDto
 {
     public int Id { get; init; }

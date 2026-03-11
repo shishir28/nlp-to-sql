@@ -1,4 +1,4 @@
--- Widget layout persistence: stores each customer's live dashboard widgets
+t-- Widget layout persistence: stores each customer's live dashboard widgets
 CREATE TABLE IF NOT EXISTS DashboardWidgets (
     Id           INT          AUTO_INCREMENT PRIMARY KEY,
     CustomerId   VARCHAR(50)  NOT NULL,

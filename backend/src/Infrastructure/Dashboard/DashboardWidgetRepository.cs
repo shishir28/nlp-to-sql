@@ -10,6 +10,7 @@ public interface IDashboardWidgetRepository
     Task<IReadOnlyList<DashboardWidgetDto>> GetByCustomerAsync(string customerId, CancellationToken ct);
     Task<DashboardWidgetDto> SaveAsync(string customerId, string userId, SaveDashboardWidgetRequest request, CancellationToken ct);
     Task UpdateViewTypeAsync(int id, string customerId, string viewType, CancellationToken ct);
+    Task UpdateSortOrderAsync(int id, string customerId, int sortOrder, CancellationToken ct);
     Task DeleteAsync(int id, string customerId, CancellationToken ct);
     Task DeleteAllAsync(string customerId, CancellationToken ct);
 }
@@ -75,6 +76,15 @@ public sealed class DashboardWidgetRepository : IDashboardWidgetRepository
         await connection.ExecuteAsync(
             "UPDATE DashboardWidgets SET ViewType = @ViewType WHERE Id = @Id AND CustomerId = @CustomerId",
             new { Id = id, CustomerId = customerId, ViewType = viewType });
+    }
+
+    public async Task UpdateSortOrderAsync(int id, string customerId, int sortOrder, CancellationToken ct)
+    {
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(ct);
+        await connection.ExecuteAsync(
+            "UPDATE DashboardWidgets SET SortOrder = @SortOrder WHERE Id = @Id AND CustomerId = @CustomerId",
+            new { Id = id, CustomerId = customerId, SortOrder = sortOrder });
     }
 
     public async Task DeleteAsync(int id, string customerId, CancellationToken ct)

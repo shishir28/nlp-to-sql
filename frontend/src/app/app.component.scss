@@ -1123,3 +1123,81 @@
 
   &::placeholder { color: var(--pm-gray-400); }
 }
+
+// ─── Drag & Drop ──────────────────────────────────────────────────────────────
+.pm-widget__drag-handle {
+  cursor: grab;
+  color: var(--pm-gray-300);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  user-select: none;
+
+  &:hover { color: var(--pm-gray-500); background: var(--pm-gray-100); }
+  &:active { cursor: grabbing; }
+}
+
+.pm-widget--dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.pm-widget--drag-over {
+  outline: 2px dashed var(--pm-primary);
+  outline-offset: 2px;
+  background: rgba(30,125,200,0.04);
+}
+
+// ─── Heatmap ─────────────────────────────────────────────────────────────────
+.pm-heatmap-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 220px;
+  padding: 4px 0;
+}
+
+.pm-heatmap {
+  border-collapse: collapse;
+  font-size: 11px;
+  white-space: nowrap;
+
+  th, td { padding: 0; }
+}
+
+.pm-heatmap-label {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--pm-gray-500);
+  text-align: center;
+  padding: 2px 4px;
+  font-weight: 600;
+}
+
+.pm-heatmap-row-label {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--pm-gray-500);
+  padding: 2px 6px 2px 0;
+  font-weight: 500;
+  text-align: right;
+}
+
+.pm-heatmap-cell {
+  width: 40px;
+  height: 28px;
+  text-align: center;
+  font-size: 10px;
+  color: #fff;
+  font-weight: 600;
+  border-radius: 2px;
+  transition: opacity 0.1s;
+
+  &:hover { opacity: 0.8; }
+}

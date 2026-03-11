@@ -126,6 +126,12 @@ export class DashboardService {
     });
   }
 
+  updateWidgetOrder(id: number, sortOrder: number, customerId: string): Observable<void> {
+    return this.http.patch<void>(`${this.base}/dashboardwidgets/${id}/order`, { sortOrder }, {
+      params: { customerId },
+    });
+  }
+
   updateWidgetView(id: number, viewType: string, customerId: string): Observable<void> {
     return this.http.patch<void>(`${this.base}/dashboardwidgets/${id}/view`, { viewType }, {
       params: { customerId },
