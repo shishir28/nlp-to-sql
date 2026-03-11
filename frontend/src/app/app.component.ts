@@ -6,6 +6,7 @@ import { QueryService, StreamEvent } from "./query.service";
 import { QueryResponse } from "./models";
 import { DashboardService, SavedQueryDto, AnalyticsSummary, ScheduledReportDto, DashboardWidgetRecord } from "./dashboard.service";
 import { ChartWidgetComponent } from "./chart-widget.component";
+import { ChartType } from "chart.js";
 
 export interface ConversationTurn {
   question: string;
@@ -139,7 +140,7 @@ export class AppComponent implements OnInit, OnDestroy {
             dbId: rec.id,
             title: rec.title,
             question: rec.question,
-            viewType: rec.viewType as "kpi" | "chart" | "table",
+            viewType: rec.viewType as WidgetViewType,
             loading: true,
           };
           // Insert in sort order
@@ -206,7 +207,7 @@ export class AppComponent implements OnInit, OnDestroy {
     const showAsLast = lower.match(/^show\s+as\s+(chart|table|kpi)$/);
     if (showAsLast) {
       if (this.widgets.length)
-        this.widgets[this.widgets.length - 1].viewType = showAsLast[1] as "chart" | "table" | "kpi";
+        this.widgets[this.widgets.length - 1].viewType = showAsLast[1] as WidgetViewType;
       return;
     }
 
@@ -214,7 +215,7 @@ export class AppComponent implements OnInit, OnDestroy {
     const namedView = lower.match(/^(?:show\s+)?(.+?)\s+as\s+(chart|table|kpi)$/);
     if (namedView) {
       const w = this.findWidgetByName(namedView[1]);
-      if (w) { w.viewType = namedView[2] as "chart" | "table" | "kpi"; return; }
+      if (w) { w.viewType = namedView[2] as WidgetViewType; return; }
     }
 
     // default: treat as NL query → add widget
@@ -286,7 +287,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.widgets = this.widgets.filter(w => w.id !== id);
   }
 
-  setWidgetView(widget: DashboardWidget, type: "kpi" | "chart" | "table"): void {
+  setWidgetView(widget: DashboardWidget, type: WidgetViewType): void {
     widget.viewType = type;
     if (widget.dbId) {
       this.dashboardService.updateWidgetView(widget.dbId, type, this.selectedCustomerId).subscribe({ error: () => {} });
@@ -394,8 +395,8 @@ export class AppComponent implements OnInit, OnDestroy {
     return ["chart", "line", "pie", "donut", "scatter"].includes(type);
   }
 
-  toChartJsType(type: WidgetViewType): string {
-    const map: Record<string, string> = {
+  toChartJsType(type: WidgetViewType): ChartType {
+    const map: Record<string, ChartType> = {
       chart: "bar", line: "line", pie: "pie", donut: "doughnut", scatter: "scatter",
     };
     return map[type] ?? "bar";

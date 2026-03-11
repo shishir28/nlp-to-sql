@@ -1,14 +1,14 @@
 # Build stage
-FROM node:20-alpine AS build
+FROM node:20 AS build
 WORKDIR /app
 
 # Copy package files
 COPY frontend/package*.json ./
-RUN npm install --quiet
+RUN npm install
 
 # Copy source code and build
 COPY frontend/ .
-RUN npm run build -- --configuration=production
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build -- --configuration=production
 
 # Runtime stage with nginx
 FROM nginx:alpine
