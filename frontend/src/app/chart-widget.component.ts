@@ -10,11 +10,8 @@ Chart.register(...registerables);
   selector: "pm-chart-widget",
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<canvas #canvas></canvas>`,
-  styles: [
-    `:host { display: block; width: 100%; height: 240px; }
-     canvas { width: 100% !important; height: 100% !important; }`,
-  ],
+  template: `<div style="position:relative;width:100%;height:240px"><canvas #canvas></canvas></div>`,
+  styles: [],
 })
 export class ChartWidgetComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() chartType: ChartType = "bar";
@@ -39,13 +36,32 @@ export class ChartWidgetComponent implements AfterViewInit, OnChanges, OnDestroy
   }
 
   private render(): void {
-    this.chart?.destroy();
-    if (!this.chartData || !this.canvasRef?.nativeElement) return;
+    const canvas = this.canvasRef?.nativeElement;
+    if (!this.chartData || !canvas) {
+      this.chart?.destroy();
+      this.chart = undefined;
+      return;
+    }
+
+    // Destroy and recreate only when chart type changes
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (this.chart && (this.chart.config as any).type !== this.chartType) {
+      this.chart.destroy();
+      this.chart = undefined;
+    }
+
+    // Update data in place to avoid rAF cancellation flicker
+    if (this.chart) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.chart.data = this.chartData as any;
+      this.chart.update('none');
+      return;
+    }
 
     const isRound = this.chartType === "pie" || this.chartType === "doughnut";
     const isScatter = this.chartType === "scatter";
 
-    this.chart = new Chart(this.canvasRef.nativeElement, {
+    this.chart = new Chart(canvas, {
       type: this.chartType,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data: this.chartData as any,

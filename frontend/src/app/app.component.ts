@@ -238,7 +238,8 @@ export class AppComponent implements OnInit, OnDestroy {
           widget.response = response;
           widget.loading = false;
           if (response.status === "ok") {
-            widget.viewType = this.detectWidgetType(response);
+            // Default to table; user can switch view type manually
+            widget.viewType = "table";
             // Auto-save to DB (only if not already persisted)
             if (!widget.dbId) {
               this.dashboardService.saveWidget(
@@ -679,23 +680,21 @@ export class AppComponent implements OnInit, OnDestroy {
     const cols = this.getColumnKeys(r);
     if (cols.length < 2) return null;
 
-    const sample = r.rows[0];
-    let labelCol = "";
-    let valueCol = "";
+    const isNumericCol = (col: string) =>
+      r.rows!.every(row => row[col] !== null && row[col] !== undefined && row[col] !== "" && !isNaN(Number(row[col])));
 
-    for (const col of cols) {
-      const val = sample[col];
-      if (!labelCol && (typeof val === "string") && isNaN(Number(val))) {
-        labelCol = col;
-      }
-      if (!valueCol && (typeof val === "number" || (typeof val === "string" && !isNaN(Number(val)) && val !== ""))) {
-        if (r.rows.every((row) => !isNaN(Number(row[col])))) {
-          valueCol = col;
-        }
-      }
+    // Label: first column where values are NOT all numeric
+    let labelCol = cols.find(col => !isNumericCol(col)) ?? "";
+    // Value: first numeric column that isn't the label column
+    let valueCol = cols.find(col => col !== labelCol && isNumericCol(col)) ?? "";
+
+    // Fallback: use first col as label, second as value (e.g. year, count)
+    if (!labelCol || !valueCol) {
+      labelCol = cols[0];
+      valueCol = cols.find(col => col !== labelCol && isNumericCol(col)) ?? cols[1];
     }
 
-    if (!labelCol || !valueCol) return null;
+    if (!labelCol || !valueCol || labelCol === valueCol) return null;
 
     const data = r.rows.slice(0, 15).map((row) => ({
       label: String(row[labelCol] ?? ""),
