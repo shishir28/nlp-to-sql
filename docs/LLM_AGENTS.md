@@ -191,8 +191,8 @@ curl -X POST http://localhost:5000/api/query \
 | `LOCAL_LLM_MODEL` | `llama3.1:8b` | Local model name |
 | `DB_HOST` | `localhost` | MySQL host for schema introspection |
 | `DB_PORT` | `3306` | MySQL port |
-| `DB_NAME` | `propertydb` | Database name |
-| `DB_USER` | `app` | DB user for INFORMATION_SCHEMA reads |
+| `DB_NAME` | `property_analytics` | Database name |
+| `DB_USER` | `app_user` | DB user for INFORMATION_SCHEMA reads |
 | `DB_PASSWORD` | - | DB password |
 | `SCHEMA_CACHE_TTL` | `300` | Seconds to cache FK map from INFORMATION_SCHEMA |
 

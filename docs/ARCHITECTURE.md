@@ -252,12 +252,17 @@ Defined in `db/policy/schema-policy.json`:
 ### Angular Frontend
 - **Purpose**: User interface
 - **Responsibilities**:
-  - Render query input form
-  - Display results in table
-  - Display clarification prompts and plain-English execution explanations
-  - Handle loading/error states
-  - Provide example queries
-- **Technology**: Angular 19 standalone components
+  - Render NL query input with SSE streaming status display (live agent progress)
+  - Display results in table with column sorting, export CSV, and row limit (25 shown, drill-down to full)
+  - Display clarification prompts and plain-English NL summary (never raw SQL)
+  - Handle loading/error states with per-widget feedback
+  - Provide example queries and multi-turn conversation history
+  - **Dashboard tab**: Pinned widget grid (2-column, drag-to-reorder) — each widget runs its own query and persists view type to DB
+  - **Chart visualizations**: Bar, line, pie, donut, scatter, heatmap via Chart.js (`ChartWidgetComponent`)
+  - **Saved queries (pins)**: Pin any query result as a named tile for quick re-use
+  - **Analytics tab**: Query count trends, domain distribution, top queries (read from `QueryAuditLog`)
+  - **Scheduled reports tab**: Create/manage email reports with cron-like schedule (`ScheduledReports` table)
+- **Technology**: Angular 19 standalone components, Chart.js 4.x, `ChartWidgetComponent`
 - **Security**: No secrets, no direct DB access, no SQL display
 
 ### .NET API (Trust Boundary)
@@ -295,8 +300,11 @@ Defined in `db/policy/schema-policy.json`:
 
 ### MySQL Database
 - **Purpose**: Multi-tenant data storage
-- **Schema**: 13 tables, all tenant-scoped via `CustomerId`
-- **Technology**: MySQL 8.4 in Docker
+- **Schema**: 17 tables, all tenant-scoped via `CustomerId`
+  - Core: `Customers`, `Properties`, `Owners`, `Tenants`, `Tenancies`, `RentLedgerEntries`, `MaintenanceJobs`, `Inspections`, `OwnerStatements`, `Vendors`, `PropertyOwners`
+  - Dashboard/Analytics: `DashboardWidgets`, `SavedQueries`, `ScheduledReports`, `QueryAuditLog`
+  - Reference: `PropertyOwners` (join table)
+- **Technology**: MySQL 8.4 in Docker (external port 3307)
 - **Security**: Row-level tenant isolation via `CustomerId` column
 
 ## Technology Stack
@@ -335,12 +343,20 @@ Defined in `db/policy/schema-policy.json`:
 ## Deployment Architecture
 
 ### Development (Current)
+All services run via Docker Compose:
+```bash
+docker-compose up -d
 ```
-Frontend: localhost:4200 (ng serve)
-API: localhost:5000 (dotnet run)
-Agent: localhost:8000 (uvicorn)
-Database: localhost:3306 (Docker)
-```
+| Service | Container | External Port |
+|---------|-----------|---------------|
+| Angular (nginx) | nlp2sql-frontend | 4200 |
+| .NET API | nlp2sql-api | 5000 |
+| Python Agent | nlp2sql-agent | 8000 |
+| MySQL 8.4 | nlp2sql-mysql | 3307 |
+| Redis | nlp2sql-redis | 6379 |
+| Adminer | nlp2sql-adminer | 8080 |
+
+DB migrations (Flyway) and seeding run automatically via the `nlp2sql-seeder` container on first start.
 
 ### Production (Recommended)
 ```

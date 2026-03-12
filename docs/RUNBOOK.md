@@ -19,166 +19,48 @@ docker --version
 flyway --version
 ```
 
-## Quick Start (Step-by-Step)
+## Quick Start
 
-### Step 1: Start Database
-
-```bash
-cd db
-docker compose up -d
-```
-
-Wait for MySQL to become healthy (~20 seconds):
-```bash
-docker compose ps
-# Wait until mysql shows "healthy" status
-```
-
-Verify MySQL is accessible:
-```bash
-docker exec -it mysql_db mysql -uapp_user -papp_pass_secure -e "SELECT 1"
-```
-
-### Step 2: Run Database Migrations
-
-From the `db/` directory:
-```bash
-flyway -configFiles=flyway.conf migrate
-```
-
-Expected output:
-```
-Successfully applied 2 migrations
-  V1__init_schema.sql
-  V2__reference_data.sql
-```
-
-Verify schema:
-```bash
-docker exec -it mysql_db mysql -uapp_user -papp_pass_secure property_analytics \
-  -e "SHOW TABLES"
-```
-
-### Step 3: Seed Database with Test Data
+### One-Command Start
 
 ```bash
-cd ../backend/src/SeedRunner
-dotnet run
+docker-compose up -d
 ```
 
-Expected output:
-```
-🌱 Property Analytics Database Seeder
-=====================================
+Wait ~30 seconds for all services to become healthy, then open **http://localhost:4200**.
 
-Testing database connection...
-✅ Connected to MySQL
-
-Seed Configuration:
-  Customers: 10
-  Properties per customer: 20
-  Tenancies per customer: 25
-  Maintenance jobs per customer: 400
-
-🗑️  Cleaning existing data...
-👥 Seeding customers...
-  ✅ Seeded 10 customers
-🏘️  Seeding properties, owners, tenants, vendors...
-...
-✅ Seeding complete!
+Check all services are healthy:
+```bash
+docker-compose ps
 ```
 
-### Step 4: Start Python Agent Service
+All containers should show `healthy` or `running`. The `nlp2sql-seeder` container will exit with code 0 after completing migrations and seeding — this is expected.
+
+### Smoke Test
 
 ```bash
-cd ../../../agents/nl2sql-service
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
-
-Expected output:
-```
-INFO:     Started server process
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000
-```
-
-Test agent health:
-```bash
+# Agent health
 curl http://localhost:8000/health
-# Should return: {"status":"healthy","service":"nl2sql-agent","version":"1.0.0"}
-```
 
-### Step 5: Start .NET API
-
-Open a new terminal:
-```bash
-cd backend/src/Api
-dotnet run
-```
-
-Expected output:
-```
-🚀 API Server starting on http://localhost:5000
-info: Microsoft.Hosting.Lifetime[14]
-      Now listening on: http://localhost:5000
-```
-
-Test API health:
-```bash
+# API health
 curl http://localhost:5000/api/query/health
-# Should return: {"status":"healthy","service":"nl2sql-api","timestamp":"..."}
+
+# Run a query
+curl -X POST http://localhost:5000/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Show active tenancies","customerId":"1","role":"PropertyManager"}'
 ```
-
-### Step 6: Start Angular Frontend
-
-Open a new terminal:
-```bash
-cd frontend
-npm install  # First time only
-npm start
-```
-
-Expected output:
-```
-✔ Browser application bundle generation complete.
-Initial Chunk Files   | Names         |  Raw Size
-polyfills.js          | polyfills     |  83.60 kB | 
-main.js               | main          |  22.31 kB | 
-styles.css            | styles        |   5.25 kB | 
-
-** Angular Live Development Server is listening on localhost:4200 **
-```
-
-### Step 7: Smoke Test
-
-1. Open browser to http://localhost:4200
-2. Enter question: **"Show active tenancies ending in next 60 days"**
-3. Click **"Run Query"**
-4. Verify results table appears with data
-
-Expected behavior:
-- Page loads with purple gradient background
-- Example buttons work
-- Query executes in < 3 seconds
-- UI may show a clarification prompt if question is ambiguous
-- UI shows a plain-English explanation of executed query behavior
-- Results table shows columns: TenancyId, TenantName, PropertyAddress, LeaseStartDate, LeaseEndDate, RentAmount, RentFrequency, DaysUntilExpiry
 
 ## Service URLs
 
-Once running, access:
-
 | Service | URL | Purpose |
 |---------|-----|---------|
-| Angular UI | http://localhost:4200 | Main user interface (NL input/output, no SQL display) |
+| Angular UI | http://localhost:4200 | Main UI (query tab, dashboard, analytics, reports) |
 | .NET API | http://localhost:5000 | Trust boundary / SQL execution |
 | Python Agent | http://localhost:8000 | LangGraph SQL generation |
-| MySQL | localhost:3306 | Database |
-| Adminer | http://localhost:8080 | Database UI (login: app_user / app_pass_secure) |
+| MySQL | localhost:**3307** | Database (user: app_user / pass: app_pass_secure) |
+| Redis | localhost:6379 | Conversation memory store |
+| Adminer | http://localhost:8080 | Database UI (app_user / app_pass_secure / property_analytics) |
 | Swagger | http://localhost:5000/swagger | API documentation |
 
 ## Troubleshooting
@@ -254,40 +136,21 @@ npm install
 ## Stopping Services
 
 ```bash
-# Stop frontend (Ctrl+C in terminal)
-# Stop API (Ctrl+C in terminal)
-# Stop Python agent (Ctrl+C in terminal)
+# Stop all containers
+docker-compose down
 
-# Stop database
-cd db
-docker compose down
-
-# Stop and remove all data
-docker compose down -v
+# Stop and remove all data (full reset)
+docker-compose down -v
 ```
 
-## Resetting Everything
+## Full Reset
 
-Complete clean slate:
 ```bash
-# Stop all services
-docker compose down -v
-
-# Clean .NET build artifacts
-cd backend/src
-dotnet clean
-rm -rf **/bin **/obj
-
-# Clean Python venv
-cd ../../agents/nl2sql-service
-rm -rf .venv
-
-# Clean frontend
-cd ../../frontend
-rm -rf node_modules dist
-
-# Now follow Quick Start from Step 1
+docker-compose down -v
+docker-compose up -d
 ```
+
+This removes all volumes and restarts from scratch. Migrations and seed data reload automatically.
 
 ## Production Deployment Notes
 

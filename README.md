@@ -95,44 +95,28 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed design.
 - **Docker Desktop** ([Download](https://www.docker.com/products/docker-desktop))
 - **Flyway CLI** ([Download](https://flywaydb.org/download))
 
-### Step-by-Step Setup
+### Option 1: Full Docker Stack (Recommended)
 
 ```bash
-# 1. Start Database
-cd db
-docker compose up -d
-# Wait for healthy status (~20 seconds)
-
-# 2. Run Migrations
-flyway -configFiles=flyway.conf migrate
-
-# 3. Seed Test Data (10,000+ records)
-cd ../backend/src/SeedRunner
-dotnet run
-
-# 4. Start Python Agent
-cd ../../../agents/nl2sql-service
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# 5. Start .NET API (new terminal)
-cd backend/src/Api
-dotnet run
-
-# 6. Start Angular Frontend (new terminal)
-cd frontend
-npm install  # First time only
-npm start
+docker-compose up -d
 ```
 
-### Test It!
+That's it. All services start together:
+- Migrations and seed data load automatically via `nlp2sql-seeder`
+- Angular UI available at **http://localhost:4200** (~30s for first start)
 
-1. Open browser: **http://localhost:4200**
-2. Click example: **"Expiring Leases"**
-3. Click **"Run Query"**
-4. See results in < 3 seconds ✨
+### Option 2: Local Development (Hot-Reload)
+
+```bash
+# 1. Start backing services (MySQL + Redis + Agent)
+docker-compose up -d mysql redis agent
+
+# 2. Start .NET API
+cd backend/src/Api && dotnet run
+
+# 3. Start Angular with hot-reload
+cd frontend && npm install && npm start
+```
 
 ---
 
@@ -272,15 +256,3 @@ nlp-to-sql/
 ---
 
 **Built with ❤️ for property managers who deserve better analytics tools.**
-- **Audit Trail**: Full request/response logging
-
-## Project Structure
-
-```
-/backend          - .NET API and infrastructure
-/agents           - Python LangGraph multi-agent service
-/frontend         - Angular UI
-/db               - Migrations, Docker, policy JSON
-/docs             - Architecture decisions and diagrams
-/tests            - Integration and security tests
-```
