@@ -1201,3 +1201,167 @@
 
   &:hover { opacity: 0.8; }
 }
+
+// ─── Header actions row ────────────────────────────────────────────────────────
+.pm-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+// ─── Global date filter bar (F6) ──────────────────────────────────────────────
+.pm-date-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+  flex-wrap: wrap;
+
+  &__label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--pm-gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  &__sep {
+    color: var(--pm-gray-400);
+    font-size: 13px;
+  }
+}
+
+.pm-date-input {
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+  width: 140px;
+}
+
+// ─── Widget settings panel (F3 + F4) ─────────────────────────────────────────
+.pm-widget-settings {
+  background: var(--pm-gray-50);
+  border-bottom: 1px solid var(--pm-gray-200);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  &__label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--pm-gray-500);
+    width: 130px;
+    flex-shrink: 0;
+  }
+}
+
+// ─── KPI threshold alert colours (F4) ────────────────────────────────────────
+.pm-widget-kpi {
+  &.pm-kpi--below { background: rgba(239,68,68,0.08); border-radius: 8px; }
+  &.pm-kpi--above { background: rgba(239,68,68,0.08); border-radius: 8px; }
+  &.pm-kpi--ok    { background: rgba(34,197,94,0.08);  border-radius: 8px; }
+
+  &.pm-kpi--below .pm-widget-kpi__value,
+  &.pm-kpi--above .pm-widget-kpi__value { color: #dc2626; }
+  &.pm-kpi--ok    .pm-widget-kpi__value { color: #16a34a; }
+}
+
+.pm-kpi-threshold-hint {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--pm-gray-400);
+  margin-top: 4px;
+}
+
+// ─── Active control button state ──────────────────────────────────────────────
+.pm-wctrl-btn--active {
+  background: var(--pm-primary-10) !important;
+  color: var(--pm-primary) !important;
+}
+
+// ─── Suggestions dropdown (F8) ───────────────────────────────────────────────
+.pm-suggestions {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 60px;
+  background: #fff;
+  border: 1px solid var(--pm-gray-200);
+  border-radius: var(--pm-radius-lg);
+  box-shadow: var(--pm-shadow-lg);
+  z-index: 200;
+  overflow: hidden;
+}
+
+.pm-suggestion-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--pm-gray-700);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-bottom: 1px solid var(--pm-gray-100);
+
+  &:last-child { border-bottom: none; }
+  &:hover { background: var(--pm-gray-50); color: var(--pm-primary); }
+}
+
+// ─── Widget state ok ──────────────────────────────────────────────────────────
+.pm-widget-state--ok {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+// ─── Anomaly view (F11) ───────────────────────────────────────────────────────
+.pm-anomaly-meta {
+  font-size: 11px;
+  color: var(--pm-gray-500);
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid var(--pm-gray-100);
+}
+
+.pm-anomaly-list { padding: 4px 8px; }
+
+.pm-anomaly-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  background: var(--pm-gray-50);
+
+  &--high { background: rgba(239,68,68,0.08); border-left: 3px solid #dc2626; }
+  &--low  { background: rgba(59,130,246,0.08); border-left: 3px solid #2563eb; }
+}
+
+.pm-anomaly-label { flex: 1; font-weight: 600; color: var(--pm-gray-800); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-anomaly-val   { font-family: 'SF Mono', monospace; color: var(--pm-gray-700); }
+.pm-anomaly-badge { font-size: 10px; background: var(--pm-gray-200); color: var(--pm-gray-600); border-radius: 4px; padding: 1px 5px; font-family: 'SF Mono', monospace; }
+.pm-anomaly-dir   { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+.pm-anomaly-item--high .pm-anomaly-dir { color: #dc2626; }
+.pm-anomaly-item--low  .pm-anomaly-dir { color: #2563eb; }
+
+// ─── Print styles (F9) ───────────────────────────────────────────────────────
+@media print {
+  .pm-topbar, .pm-dash-bar, .pm-widget__controls, .pm-widget-settings,
+  .pm-btn, .pm-date-filter, .pm-header-actions { display: none !important; }
+  .pm-widget { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+  .pm-widget-grid { display: block !important; }
+  .pm-content { padding: 0 !important; }
+}

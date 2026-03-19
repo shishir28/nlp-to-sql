@@ -1,5 +1,5 @@
 import {
-  Component, Input, OnChanges, OnDestroy, AfterViewInit,
+  Component, Input, Output, EventEmitter, OnChanges, OnDestroy, AfterViewInit,
   ElementRef, ViewChild, ChangeDetectionStrategy,
 } from "@angular/core";
 import { Chart, ChartType, registerables } from "chart.js";
@@ -16,6 +16,7 @@ Chart.register(...registerables);
 export class ChartWidgetComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() chartType: ChartType = "bar";
   @Input() chartData: unknown = null;
+  @Output() barClick = new EventEmitter<string>();
 
   @ViewChild("canvas") canvasRef!: ElementRef<HTMLCanvasElement>;
 
@@ -69,6 +70,12 @@ export class ChartWidgetComponent implements AfterViewInit, OnChanges, OnDestroy
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 300 },
+        onClick: (_event, elements) => {
+          if (!elements.length) return;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const label = (this.chart?.data?.labels as any[])?.[elements[0].index];
+          if (label != null) this.barClick.emit(String(label));
+        },
         plugins: {
           legend: {
             display: isRound,

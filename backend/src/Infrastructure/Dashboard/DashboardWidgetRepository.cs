@@ -11,6 +11,8 @@ public interface IDashboardWidgetRepository
     Task<DashboardWidgetDto> SaveAsync(string customerId, string userId, SaveDashboardWidgetRequest request, CancellationToken ct);
     Task UpdateViewTypeAsync(int id, string customerId, string viewType, CancellationToken ct);
     Task UpdateSortOrderAsync(int id, string customerId, int sortOrder, CancellationToken ct);
+    Task UpdateRefreshIntervalAsync(int id, string customerId, int? refreshIntervalMinutes, CancellationToken ct);
+    Task UpdateThresholdsAsync(int id, string customerId, decimal? thresholdMin, decimal? thresholdMax, CancellationToken ct);
     Task DeleteAsync(int id, string customerId, CancellationToken ct);
     Task DeleteAllAsync(string customerId, CancellationToken ct);
 }
@@ -30,7 +32,7 @@ public sealed class DashboardWidgetRepository : IDashboardWidgetRepository
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(ct);
         var rows = await connection.QueryAsync<DashboardWidgetDto>(@"
-            SELECT Id, Title, Question, ViewType, SortOrder, CreatedAtUtc
+            SELECT Id, Title, Question, ViewType, SortOrder, RefreshIntervalMinutes, ThresholdMin, ThresholdMax, CreatedAtUtc
             FROM DashboardWidgets
             WHERE CustomerId = @CustomerId
             ORDER BY SortOrder ASC, CreatedAtUtc ASC",
@@ -85,6 +87,24 @@ public sealed class DashboardWidgetRepository : IDashboardWidgetRepository
         await connection.ExecuteAsync(
             "UPDATE DashboardWidgets SET SortOrder = @SortOrder WHERE Id = @Id AND CustomerId = @CustomerId",
             new { Id = id, CustomerId = customerId, SortOrder = sortOrder });
+    }
+
+    public async Task UpdateRefreshIntervalAsync(int id, string customerId, int? refreshIntervalMinutes, CancellationToken ct)
+    {
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(ct);
+        await connection.ExecuteAsync(
+            "UPDATE DashboardWidgets SET RefreshIntervalMinutes = @V WHERE Id = @Id AND CustomerId = @CustomerId",
+            new { Id = id, CustomerId = customerId, V = refreshIntervalMinutes });
+    }
+
+    public async Task UpdateThresholdsAsync(int id, string customerId, decimal? thresholdMin, decimal? thresholdMax, CancellationToken ct)
+    {
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(ct);
+        await connection.ExecuteAsync(
+            "UPDATE DashboardWidgets SET ThresholdMin = @Min, ThresholdMax = @Max WHERE Id = @Id AND CustomerId = @CustomerId",
+            new { Id = id, CustomerId = customerId, Min = thresholdMin, Max = thresholdMax });
     }
 
     public async Task DeleteAsync(int id, string customerId, CancellationToken ct)

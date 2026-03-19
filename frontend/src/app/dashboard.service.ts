@@ -24,6 +24,7 @@ export interface ScheduledReportDto {
   role: string;
   recipientEmail: string;
   schedule: string;
+  alertCondition: string | null;
   isActive: boolean;
   lastRunAtUtc: string | null;
   nextRunAtUtc: string | null;
@@ -36,6 +37,7 @@ export interface CreateScheduledReportRequest {
   role: string;
   recipientEmail: string;
   schedule: string;
+  alertCondition?: string;
 }
 
 export interface DashboardWidgetRecord {
@@ -44,6 +46,9 @@ export interface DashboardWidgetRecord {
   question: string;
   viewType: string;
   sortOrder: number;
+  refreshIntervalMinutes: number | null;
+  thresholdMin: number | null;
+  thresholdMax: number | null;
   createdAtUtc: string;
 }
 
@@ -146,6 +151,18 @@ export class DashboardService {
 
   deleteAllWidgets(customerId: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/dashboardwidgets`, {
+      params: { customerId },
+    });
+  }
+
+  updateWidgetRefresh(id: number, refreshIntervalMinutes: number | null, customerId: string): Observable<void> {
+    return this.http.patch<void>(`${this.base}/dashboardwidgets/${id}/refresh`, { refreshIntervalMinutes }, {
+      params: { customerId },
+    });
+  }
+
+  updateWidgetThresholds(id: number, thresholdMin: number | null, thresholdMax: number | null, customerId: string): Observable<void> {
+    return this.http.patch<void>(`${this.base}/dashboardwidgets/${id}/thresholds`, { thresholdMin, thresholdMax }, {
       params: { customerId },
     });
   }

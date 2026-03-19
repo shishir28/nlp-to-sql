@@ -2,11 +2,45 @@ import { Component, OnDestroy, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { Subscription } from "rxjs";
+import { HttpClient } from "@angular/common/http";
 import { QueryService, StreamEvent } from "./query.service";
 import { QueryResponse } from "./models";
 import { DashboardService, SavedQueryDto, AnalyticsSummary, ScheduledReportDto, DashboardWidgetRecord } from "./dashboard.service";
 import { ChartWidgetComponent } from "./chart-widget.component";
 import { ChartType } from "chart.js";
+
+const ROLE_PRESETS: Record<string, string[]> = {
+  PropertyManager: [
+    "Which tenancies have arrears?",
+    "Show open maintenance jobs",
+    "Show active tenancies ending in next 60 days",
+    "List upcoming inspections",
+  ],
+  Owner: [
+    "Show total income summary by owner",
+    "Show vacant properties in portfolio",
+    "Show non-compliant inspection results",
+  ],
+  Tenant: [
+    "Show open maintenance jobs",
+    "List upcoming inspections",
+  ],
+};
+
+const DOMAIN_SUGGESTIONS: string[] = [
+  "Which tenancies have arrears?",
+  "Show open maintenance jobs older than 30 days",
+  "Show active tenancies ending in next 60 days",
+  "List upcoming inspections for next month",
+  "Show vacant properties in portfolio",
+  "List all active contractors",
+  "Show non-compliant inspection results",
+  "Show total income summary by owner",
+  "Which leases are expiring in 90 days?",
+  "Show maintenance jobs by category",
+  "List properties with no active tenancy",
+  "Show rent arrears by property",
+];
 
 export interface ConversationTurn {
   question: string;
@@ -17,12 +51,18 @@ export interface ConversationTurn {
 
 export interface ChartRow { label: string; value: number; pct: number; }
 
-export type WidgetViewType = "kpi" | "table" | "chart" | "line" | "pie" | "donut" | "scatter" | "heatmap";
+export type WidgetViewType = "kpi" | "table" | "chart" | "line" | "pie" | "donut" | "scatter" | "heatmap" | "anomaly";
 
 export interface HeatmapData {
   rowLabels: string[];
   colLabels: string[];
   cells: { value: number; intensity: number }[][];
+}
+
+export interface AnomalyResult {
+  anomalies: { label: string; value: number; z_score: number; direction: 'high' | 'low' }[];
+  mean: number | null;
+  stddev: number | null;
 }
 
 export interface DashboardWidget {
@@ -34,6 +74,12 @@ export interface DashboardWidget {
   response?: QueryResponse;
   loading: boolean;
   error?: string;
+  refreshIntervalMinutes?: number;
+  thresholdMin?: number;
+  thresholdMax?: number;
+  showSettings?: boolean;
+  anomalyResult?: AnomalyResult;
+  anomalyLoading?: boolean;
 }
 
 @Component({
@@ -96,7 +142,7 @@ export class AppComponent implements OnInit, OnDestroy {
   /** Scheduled reports */
   scheduledReports: ScheduledReportDto[] = [];
   scheduleDialogOpen: boolean = false;
-  scheduleForm = { name: "", recipientEmail: "", schedule: "daily" };
+  scheduleForm = { name: "", recipientEmail: "", schedule: "daily", alertCondition: "" };
 
   /** Analytics */
   analytics: AnalyticsSummary | null = null;
@@ -111,7 +157,25 @@ export class AppComponent implements OnInit, OnDestroy {
   dragSourceId: string | null = null;
   dragOverId: string | null = null;
 
-  constructor(private queryService: QueryService, private dashboardService: DashboardService) {}
+  /** Global date filter for dashboard */
+  dashboardDateFrom: string = "";
+  dashboardDateTo: string = "";
+
+  /** Query suggestions (F8) */
+  showSuggestions: boolean = false;
+  filteredSuggestions: string[] = [];
+
+  /** History search (F7) */
+  historySearch: string = "";
+
+  /** Auto-refresh timers keyed by widget id (F3) */
+  private autoRefreshTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+  constructor(
+    private queryService: QueryService,
+    private dashboardService: DashboardService,
+    private http: HttpClient,
+  ) {}
 
   ngOnInit(): void {
     this.loadSavedQueries();
@@ -120,6 +184,8 @@ export class AppComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.streamSub?.unsubscribe();
     this.querySub?.unsubscribe();
+    this.autoRefreshTimers.forEach(t => clearInterval(t));
+    this.autoRefreshTimers.clear();
   }
 
   switchTab(tab: "query" | "dashboard" | "analytics"): void {
@@ -142,7 +208,14 @@ export class AppComponent implements OnInit, OnDestroy {
             question: rec.question,
             viewType: rec.viewType as WidgetViewType,
             loading: true,
+            refreshIntervalMinutes: rec.refreshIntervalMinutes ?? undefined,
+            thresholdMin: rec.thresholdMin ?? undefined,
+            thresholdMax: rec.thresholdMax ?? undefined,
           };
+          // Restart auto-refresh if configured
+          if (rec.refreshIntervalMinutes) {
+            this.armAutoRefresh(widget, rec.refreshIntervalMinutes);
+          }
           // Insert in sort order
           this.widgets = [...this.widgets.slice(0, idx), widget, ...this.widgets.slice(idx)];
           this.queryService
@@ -165,6 +238,8 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   clearAllWidgets(): void {
+    this.autoRefreshTimers.forEach(t => clearInterval(t));
+    this.autoRefreshTimers.clear();
     this.widgets = [];
     this.dashboardService.deleteAllWidgets(this.selectedCustomerId).subscribe({ error: () => {} });
   }
@@ -223,6 +298,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   addWidget(question: string): void {
+    const effectiveQuestion = question + this.buildDateSuffix();
     const widget: DashboardWidget = {
       id: this.newId(),
       title: question.length > 55 ? question.slice(0, 52) + "…" : question,
@@ -232,7 +308,7 @@ export class AppComponent implements OnInit, OnDestroy {
     };
     this.widgets = [...this.widgets, widget];
     this.queryService
-      .executeQuery(question, this.dashboardConvId, this.selectedCustomerId, this.selectedRole)
+      .executeQuery(effectiveQuestion, this.dashboardConvId, this.selectedCustomerId, this.selectedRole)
       .subscribe({
         next: (response: QueryResponse) => {
           widget.response = response;
@@ -281,6 +357,8 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   removeWidget(id: string): void {
+    const timer = this.autoRefreshTimers.get(id);
+    if (timer) { clearInterval(timer); this.autoRefreshTimers.delete(id); }
     const widget = this.widgets.find(w => w.id === id);
     if (widget?.dbId) {
       this.dashboardService.deleteWidget(widget.dbId, this.selectedCustomerId).subscribe({ error: () => {} });
@@ -290,6 +368,9 @@ export class AppComponent implements OnInit, OnDestroy {
 
   setWidgetView(widget: DashboardWidget, type: WidgetViewType): void {
     widget.viewType = type;
+    if (type === 'anomaly' && !widget.anomalyResult && !widget.anomalyLoading) {
+      this.runAnomalyDetection(widget);
+    }
     if (widget.dbId) {
       this.dashboardService.updateWidgetView(widget.dbId, type, this.selectedCustomerId).subscribe({ error: () => {} });
     }
@@ -333,6 +414,190 @@ export class AppComponent implements OnInit, OnDestroy {
 
   addSavedAsWidget(q: SavedQueryDto): void {
     this.addWidget(q.question);
+  }
+
+  // ─── F1: Clone widget ─────────────────────────────────────────────────────────
+
+  cloneWidget(w: DashboardWidget): void {
+    this.addWidget(w.question);
+  }
+
+  // ─── F2: Export conversation to markdown ─────────────────────────────────────
+
+  exportConversationMarkdown(): void {
+    const lines: string[] = [`# Conversation Export\n_Exported: ${new Date().toLocaleString()}_\n`];
+    const allTurns = [...this.conversationHistory];
+    if (this.response || this.error) {
+      allTurns.push({ question: this.question, response: this.response, error: this.error });
+    }
+    for (const turn of allTurns) {
+      lines.push(`## Q: ${turn.question}`);
+      if (turn.error) { lines.push(`**Error:** ${turn.error}`); lines.push(''); continue; }
+      if (turn.response?.status === 'ok') {
+        if (turn.response.nlSummary) lines.push(`**Summary:** ${turn.response.nlSummary}`);
+        lines.push(`**Rows:** ${turn.response.rowCount}`);
+        const cols = this.getColumnKeys(turn.response);
+        if (cols.length && turn.response.rows?.length) {
+          lines.push('');
+          lines.push('| ' + cols.join(' | ') + ' |');
+          lines.push('| ' + cols.map(() => '---').join(' | ') + ' |');
+          (turn.response.rows ?? []).slice(0, 20).forEach(row => {
+            lines.push('| ' + cols.map(c => String(row[c] ?? '')).join(' | ') + ' |');
+          });
+        }
+      } else if (turn.response?.message) {
+        lines.push(`> ${turn.response.message}`);
+      }
+      lines.push('');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `conversation-${Date.now()}.md`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ─── F12: Role-based dashboard presets ───────────────────────────────────────
+
+  loadRolePresets(): void {
+    const questions = ROLE_PRESETS[this.selectedRole] ?? ROLE_PRESETS['PropertyManager'];
+    questions.forEach(q => this.addWidget(q));
+  }
+
+  // ─── F9: Print dashboard ──────────────────────────────────────────────────────
+
+  printDashboard(): void {
+    window.print();
+  }
+
+  // ─── F6: Global date filter helpers ──────────────────────────────────────────
+
+  private buildDateSuffix(): string {
+    if (this.dashboardDateFrom && this.dashboardDateTo)
+      return ` between ${this.dashboardDateFrom} and ${this.dashboardDateTo}`;
+    if (this.dashboardDateFrom) return ` from ${this.dashboardDateFrom}`;
+    if (this.dashboardDateTo) return ` until ${this.dashboardDateTo}`;
+    return '';
+  }
+
+  applyDateFilter(): void {
+    this.widgets.forEach(w => this.refreshWidget(w));
+  }
+
+  clearDateFilter(): void {
+    this.dashboardDateFrom = '';
+    this.dashboardDateTo = '';
+  }
+
+  // ─── F7: History search filter ────────────────────────────────────────────────
+
+  get filteredHistory() {
+    if (!this.analytics?.recentQueries) return [];
+    const q = this.historySearch.toLowerCase();
+    return q ? this.analytics.recentQueries.filter(r => r.question.toLowerCase().includes(q)) : this.analytics.recentQueries;
+  }
+
+  // ─── F3: Auto-refresh ─────────────────────────────────────────────────────────
+
+  private armAutoRefresh(widget: DashboardWidget, minutes: number): void {
+    const existing = this.autoRefreshTimers.get(widget.id);
+    if (existing) clearInterval(existing);
+    const timer = setInterval(() => this.refreshWidget(widget), minutes * 60 * 1000);
+    this.autoRefreshTimers.set(widget.id, timer);
+  }
+
+  setWidgetAutoRefresh(w: DashboardWidget, minutes: number): void {
+    const existing = this.autoRefreshTimers.get(w.id);
+    if (existing) { clearInterval(existing); this.autoRefreshTimers.delete(w.id); }
+    w.refreshIntervalMinutes = minutes > 0 ? minutes : undefined;
+    if (minutes > 0) this.armAutoRefresh(w, minutes);
+    if (w.dbId) {
+      this.dashboardService.updateWidgetRefresh(w.dbId, minutes > 0 ? minutes : null, this.selectedCustomerId)
+        .subscribe({ error: () => {} });
+    }
+  }
+
+  // ─── F4: KPI threshold alert class ───────────────────────────────────────────
+
+  getKpiAlertClass(w: DashboardWidget): string {
+    if (!w.response?.rows?.length) return '';
+    const keys = this.getColumnKeys(w.response);
+    const raw = w.response.rows[0][keys[0]];
+    const val = Number(raw);
+    if (isNaN(val)) return '';
+    if (w.thresholdMin !== undefined && val < w.thresholdMin) return 'pm-kpi--below';
+    if (w.thresholdMax !== undefined && val > w.thresholdMax) return 'pm-kpi--above';
+    return 'pm-kpi--ok';
+  }
+
+  saveWidgetThresholds(w: DashboardWidget, min: string, max: string): void {
+    w.thresholdMin = min !== '' ? Number(min) : undefined;
+    w.thresholdMax = max !== '' ? Number(max) : undefined;
+    w.showSettings = false;
+    if (w.dbId) {
+      this.dashboardService.updateWidgetThresholds(
+        w.dbId, w.thresholdMin ?? null, w.thresholdMax ?? null, this.selectedCustomerId
+      ).subscribe({ error: () => {} });
+    }
+  }
+
+  // ─── F8: Suggestions ──────────────────────────────────────────────────────────
+
+  onDashboardInputFocus(): void {
+    this.updateSuggestions(this.dashboardInput);
+    this.showSuggestions = true;
+  }
+
+  onDashboardInputChange(): void {
+    this.updateSuggestions(this.dashboardInput);
+    this.showSuggestions = true;
+  }
+
+  private updateSuggestions(input: string): void {
+    const q = input.toLowerCase().trim();
+    this.filteredSuggestions = q.length < 2
+      ? DOMAIN_SUGGESTIONS.slice(0, 6)
+      : DOMAIN_SUGGESTIONS.filter(s => s.toLowerCase().includes(q)).slice(0, 6);
+  }
+
+  selectSuggestion(s: string): void {
+    this.dashboardInput = s;
+    this.showSuggestions = false;
+    this.processDashboardInput();
+  }
+
+  hideSuggestions(): void {
+    setTimeout(() => { this.showSuggestions = false; }, 150);
+  }
+
+  // ─── F5: Drill-through from chart click ──────────────────────────────────────
+
+  onChartBarClick(widget: DashboardWidget, label: string): void {
+    const drillQuestion = `${widget.question} where ${label}`;
+    this.addWidget(drillQuestion);
+  }
+
+  // ─── F11: Anomaly detection ───────────────────────────────────────────────────
+
+  runAnomalyDetection(w: DashboardWidget): void {
+    if (!w.response?.rows?.length) return;
+    const keys = this.getColumnKeys(w.response);
+    const isNumericCol = (col: string) =>
+      w.response!.rows!.every(r => r[col] !== null && r[col] !== undefined && !isNaN(Number(r[col])));
+    const valueKey = keys.find(k => isNumericCol(k)) ?? '';
+    const labelKey = keys.find(k => k !== valueKey) ?? '';
+    if (!valueKey) return;
+
+    w.anomalyLoading = true;
+    w.anomalyResult = undefined;
+    this.http.post<AnomalyResult>('http://localhost:8000/v1/nl2sql/anomalies', {
+      rows: w.response.rows,
+      valueKey,
+      labelKey,
+    }).subscribe({
+      next: (result) => { w.anomalyResult = result; w.anomalyLoading = false; },
+      error: () => { w.anomalyLoading = false; },
+    });
   }
 
   private removeWidgetByName(name: string): void {
@@ -523,7 +788,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   /** Phase 3: scheduled reports */
   openScheduleDialog(): void {
-    this.scheduleForm = { name: this.question.trim().slice(0, 60), recipientEmail: "", schedule: "daily" };
+    this.scheduleForm = { name: this.question.trim().slice(0, 60), recipientEmail: "", schedule: "daily", alertCondition: "" };
     this.scheduleDialogOpen = true;
   }
 
@@ -532,7 +797,8 @@ export class AppComponent implements OnInit, OnDestroy {
     if (!f.name.trim() || !f.recipientEmail.trim()) return;
     this.dashboardService.createScheduledReport(
       { name: f.name.trim(), question: this.question.trim(), role: this.selectedRole,
-        recipientEmail: f.recipientEmail.trim(), schedule: f.schedule },
+        recipientEmail: f.recipientEmail.trim(), schedule: f.schedule,
+        alertCondition: f.alertCondition.trim() || undefined },
       this.selectedCustomerId
     ).subscribe({
       next: (r: ScheduledReportDto) => {

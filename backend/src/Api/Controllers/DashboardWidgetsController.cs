@@ -49,6 +49,28 @@ public class DashboardWidgetsController : ControllerBase
         return NoContent();
     }
 
+    [HttpPatch("{id:int}/refresh")]
+    public async Task<IActionResult> UpdateRefresh(
+        int id,
+        [FromBody] UpdateWidgetRefreshRequest request,
+        [FromQuery] string customerId = "1",
+        CancellationToken cancellationToken = default)
+    {
+        await _repo.UpdateRefreshIntervalAsync(id, customerId, request.RefreshIntervalMinutes, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPatch("{id:int}/thresholds")]
+    public async Task<IActionResult> UpdateThresholds(
+        int id,
+        [FromBody] UpdateWidgetThresholdsRequest request,
+        [FromQuery] string customerId = "1",
+        CancellationToken cancellationToken = default)
+    {
+        await _repo.UpdateThresholdsAsync(id, customerId, request.ThresholdMin, request.ThresholdMax, cancellationToken);
+        return NoContent();
+    }
+
     [HttpPatch("{id:int}/order")]
     public async Task<IActionResult> UpdateOrder(
         int id,

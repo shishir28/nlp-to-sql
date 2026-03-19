@@ -7,6 +7,9 @@ public sealed class DashboardWidgetDto
     public string Question { get; init; } = string.Empty;
     public string ViewType { get; init; } = "table";
     public int SortOrder { get; init; }
+    public int? RefreshIntervalMinutes { get; init; }
+    public decimal? ThresholdMin { get; init; }
+    public decimal? ThresholdMax { get; init; }
     public DateTime CreatedAtUtc { get; init; }
 }
 
@@ -26,6 +29,17 @@ public sealed class UpdateWidgetViewRequest
 public sealed class UpdateWidgetOrderRequest
 {
     public int SortOrder { get; init; }
+}
+
+public sealed class UpdateWidgetRefreshRequest
+{
+    public int? RefreshIntervalMinutes { get; init; }
+}
+
+public sealed class UpdateWidgetThresholdsRequest
+{
+    public decimal? ThresholdMin { get; init; }
+    public decimal? ThresholdMax { get; init; }
 }
 
 public sealed class SavedQueryDto
@@ -53,6 +67,7 @@ public sealed class ScheduledReportDto
     public string Role { get; init; } = "PropertyManager";
     public string RecipientEmail { get; init; } = string.Empty;
     public string Schedule { get; init; } = "daily";
+    public string? AlertCondition { get; init; }
     public bool IsActive { get; init; }
     public DateTime? LastRunAtUtc { get; init; }
     public DateTime? NextRunAtUtc { get; init; }
@@ -66,6 +81,7 @@ public sealed class CreateScheduledReportRequest
     public string Role { get; init; } = "PropertyManager";
     public string RecipientEmail { get; init; } = string.Empty;
     public string Schedule { get; init; } = "daily";
+    public string? AlertCondition { get; init; }
 }
 
 public sealed class AnalyticsSummary

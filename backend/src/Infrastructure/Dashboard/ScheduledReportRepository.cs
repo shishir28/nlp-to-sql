@@ -29,7 +29,7 @@ public sealed class ScheduledReportRepository : IScheduledReportRepository
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(ct);
         var rows = await connection.QueryAsync<ScheduledReportDto>(@"
-            SELECT Id, Name, Question, Role, RecipientEmail, Schedule, IsActive, LastRunAtUtc, NextRunAtUtc, CreatedAtUtc
+            SELECT Id, Name, Question, Role, RecipientEmail, Schedule, AlertCondition, IsActive, LastRunAtUtc, NextRunAtUtc, CreatedAtUtc
             FROM ScheduledReports
             WHERE CustomerId = @CustomerId
             ORDER BY CreatedAtUtc DESC",
@@ -45,8 +45,8 @@ public sealed class ScheduledReportRepository : IScheduledReportRepository
         var nextRun = ComputeNextRun(request.Schedule, DateTime.UtcNow);
 
         var id = await connection.ExecuteScalarAsync<int>(@"
-            INSERT INTO ScheduledReports (CustomerId, UserId, Name, Question, Role, RecipientEmail, Schedule, IsActive, NextRunAtUtc, CreatedAtUtc)
-            VALUES (@CustomerId, @UserId, @Name, @Question, @Role, @RecipientEmail, @Schedule, 1, @NextRunAtUtc, UTC_TIMESTAMP());
+            INSERT INTO ScheduledReports (CustomerId, UserId, Name, Question, Role, RecipientEmail, Schedule, AlertCondition, IsActive, NextRunAtUtc, CreatedAtUtc)
+            VALUES (@CustomerId, @UserId, @Name, @Question, @Role, @RecipientEmail, @Schedule, @AlertCondition, 1, @NextRunAtUtc, UTC_TIMESTAMP());
             SELECT LAST_INSERT_ID();",
             new
             {
@@ -57,6 +57,7 @@ public sealed class ScheduledReportRepository : IScheduledReportRepository
                 request.Role,
                 request.RecipientEmail,
                 request.Schedule,
+                AlertCondition = request.AlertCondition,
                 NextRunAtUtc = nextRun
             });
 
@@ -68,6 +69,7 @@ public sealed class ScheduledReportRepository : IScheduledReportRepository
             Role = request.Role,
             RecipientEmail = request.RecipientEmail,
             Schedule = request.Schedule,
+            AlertCondition = request.AlertCondition,
             IsActive = true,
             NextRunAtUtc = nextRun,
             CreatedAtUtc = DateTime.UtcNow
@@ -88,7 +90,7 @@ public sealed class ScheduledReportRepository : IScheduledReportRepository
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(ct);
         var rows = await connection.QueryAsync<ScheduledReportDto>(@"
-            SELECT Id, Name, Question, Role, RecipientEmail, Schedule, IsActive, LastRunAtUtc, NextRunAtUtc, CreatedAtUtc
+            SELECT Id, Name, Question, Role, RecipientEmail, Schedule, AlertCondition, IsActive, LastRunAtUtc, NextRunAtUtc, CreatedAtUtc
             FROM ScheduledReports
             WHERE IsActive = 1 AND NextRunAtUtc <= UTC_TIMESTAMP()");
         return rows.ToList();

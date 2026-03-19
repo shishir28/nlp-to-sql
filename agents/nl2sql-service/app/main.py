@@ -388,6 +388,124 @@ async def summarize_results(request: Nl2SqlSummarizeRequest) -> Nl2SqlSummarizeR
         )
 
 
+@app.post("/v1/nl2sql/suggest")
+async def suggest_queries(request: dict) -> dict:
+    """
+    Return domain-aware query suggestions based on partial input or empty prompt.
+    Used by the Angular dashboard input to show autocomplete chips.
+    """
+    partial: str = (request.get("partial") or "").lower().strip()
+    domain: str = (request.get("domain") or "").lower()
+
+    domain_suggestions: dict[str, list[str]] = {
+        "arrears": [
+            "Which tenancies have arrears?",
+            "Show rent arrears by property",
+            "List tenancies overdue by more than 14 days",
+        ],
+        "maintenance": [
+            "Show open maintenance jobs older than 30 days",
+            "Show maintenance jobs by category",
+            "List urgent maintenance requests",
+        ],
+        "tenancy": [
+            "Show active tenancies ending in next 60 days",
+            "Which leases are expiring in 90 days?",
+            "List tenancies with rent below $500 per week",
+        ],
+        "inspection": [
+            "List upcoming inspections for next month",
+            "Show non-compliant inspection results",
+            "How many inspections are overdue?",
+        ],
+        "owner_statement": [
+            "Show total income summary by owner",
+            "Which owners have outstanding balances?",
+        ],
+        "property_portfolio": [
+            "Show vacant properties in portfolio",
+            "List properties with no active tenancy",
+            "How many properties are in each suburb?",
+        ],
+    }
+
+    generic: list[str] = [
+        "Which tenancies have arrears?",
+        "Show open maintenance jobs",
+        "Show active tenancies ending in next 60 days",
+        "List upcoming inspections",
+        "Show vacant properties in portfolio",
+        "Show total income summary by owner",
+        "Which leases are expiring in 90 days?",
+        "Show non-compliant inspection results",
+        "List all active contractors",
+        "Show rent arrears by property",
+    ]
+
+    pool: list[str] = domain_suggestions.get(domain, generic)
+
+    if partial and len(partial) >= 2:
+        filtered = [s for s in pool if partial in s.lower()]
+        # supplement with generic if too few
+        if len(filtered) < 4:
+            filtered += [s for s in generic if partial in s.lower() and s not in filtered]
+    else:
+        filtered = pool
+
+    return {"suggestions": filtered[:8]}
+
+
+@app.post("/v1/nl2sql/anomalies")
+async def detect_anomalies(request: dict) -> dict:
+    """
+    Lightweight anomaly detection on a set of numeric rows.
+    Uses Z-score to flag outliers (|z| > 2).
+    Called by the Angular AnomalyWidget with the rows from a previous query.
+    """
+    try:
+        rows: list[dict] = request.get("rows") or []
+        value_key: str = request.get("valueKey") or ""
+        label_key: str = request.get("labelKey") or ""
+
+        if not rows or not value_key:
+            return {"anomalies": [], "mean": None, "stddev": None}
+
+        values = [float(r[value_key]) for r in rows if value_key in r and r[value_key] is not None]
+        if len(values) < 3:
+            return {"anomalies": [], "mean": None, "stddev": None}
+
+        mean = sum(values) / len(values)
+        variance = sum((v - mean) ** 2 for v in values) / len(values)
+        stddev = variance ** 0.5
+
+        if stddev == 0:
+            return {"anomalies": [], "mean": round(mean, 4), "stddev": 0}
+
+        anomalies = []
+        for row in rows:
+            val = row.get(value_key)
+            if val is None:
+                continue
+            z = (float(val) - mean) / stddev
+            if abs(z) > 2.0:
+                anomalies.append({
+                    "label": str(row.get(label_key, "")),
+                    "value": float(val),
+                    "z_score": round(z, 3),
+                    "direction": "high" if z > 0 else "low",
+                })
+
+        return {
+            "anomalies": anomalies,
+            "mean": round(mean, 4),
+            "stddev": round(stddev, 4),
+        }
+
+    except Exception as e:
+        logger.error(f"[Anomaly] Error: {e}", exc_info=True)
+        return {"anomalies": [], "error": str(e)}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -191,6 +191,13 @@
               title="Schedule this query as email report">
               &#128337; Schedule
             </button>
+            <!-- Export conversation button -->
+            <button *ngIf="conversationHistory.length > 0 || response"
+              (click)="exportConversationMarkdown()"
+              class="pm-btn pm-btn--ghost pm-btn--sm"
+              title="Export conversation to Markdown">
+              &#128196; Export
+            </button>
             <div class="pm-badges">
               <span class="pm-badge">{{ response.rowCount }} rows</span>
               <span class="pm-badge" *ngIf="response.executionMs">{{ response.executionMs }}ms</span>
@@ -269,6 +276,9 @@
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
           </select>
+          <label class="pm-label" style="margin-top:10px">Alert Condition <small style="font-weight:400;color:var(--pm-gray-400)">(optional)</small></label>
+          <input [(ngModel)]="scheduleForm.alertCondition" class="pm-input pm-input--full"
+            placeholder='e.g. "arrears > 5" — leave blank for plain report' />
           <div class="pm-dialog__actions">
             <button (click)="confirmSchedule()"
               [disabled]="!scheduleForm.name.trim() || !scheduleForm.recipientEmail.trim()"
@@ -288,9 +298,31 @@
           <h1 class="pm-page-title">Conversational Dashboard</h1>
           <p class="pm-page-desc">Ask to add, change, or remove widgets — all in plain English</p>
         </div>
-        <button *ngIf="widgets.length > 0" (click)="clearAllWidgets()" class="pm-btn pm-btn--default pm-btn--sm">
-          Clear All
-        </button>
+        <div class="pm-header-actions">
+          <button (click)="loadRolePresets()" class="pm-btn pm-btn--default pm-btn--sm"
+            title="Load preset widgets for current role">
+            &#9733; {{ selectedRole }} Preset
+          </button>
+          <button *ngIf="widgets.length > 0" (click)="printDashboard()" class="pm-btn pm-btn--default pm-btn--sm"
+            title="Print / save as PDF">
+            &#128438; Print
+          </button>
+          <button *ngIf="widgets.length > 0" (click)="clearAllWidgets()" class="pm-btn pm-btn--default pm-btn--sm">
+            Clear All
+          </button>
+        </div>
+      </div>
+
+      <!-- Global date filter bar -->
+      <div class="pm-date-filter" *ngIf="widgets.length > 0 || dashboardDateFrom || dashboardDateTo">
+        <span class="pm-date-filter__label">Date filter:</span>
+        <input type="date" [(ngModel)]="dashboardDateFrom" class="pm-input pm-date-input" placeholder="From" />
+        <span class="pm-date-filter__sep">–</span>
+        <input type="date" [(ngModel)]="dashboardDateTo" class="pm-input pm-date-input" placeholder="To" />
+        <button (click)="applyDateFilter()" [disabled]="!dashboardDateFrom && !dashboardDateTo"
+          class="pm-btn pm-btn--primary pm-btn--sm">Apply</button>
+        <button *ngIf="dashboardDateFrom || dashboardDateTo" (click)="clearDateFilter()"
+          class="pm-btn pm-btn--default pm-btn--sm">Clear</button>
       </div>
 
       <!-- Empty state -->
@@ -335,21 +367,50 @@
             <div class="pm-widget__controls">
               <ng-container *ngIf="!w.loading && !w.error && w.response?.status === 'ok'">
                 <!-- View type buttons -->
-                <button (click)="setWidgetView(w,'kpi')"   [class.pm-wv-active]="w.viewType==='kpi'"     class="pm-wv-btn" title="KPI">&#x23;  </button>
+                <button (click)="setWidgetView(w,'kpi')"   [class.pm-wv-active]="w.viewType==='kpi'"     class="pm-wv-btn" title="KPI">&#x23;</button>
                 <button (click)="setWidgetView(w,'chart')" [class.pm-wv-active]="w.viewType==='chart'"   class="pm-wv-btn" title="Bar">&#9641;</button>
                 <button (click)="setWidgetView(w,'line')"  [class.pm-wv-active]="w.viewType==='line'"    class="pm-wv-btn" title="Line">&#8767;</button>
                 <button (click)="setWidgetView(w,'pie')"   [class.pm-wv-active]="w.viewType==='pie'"     class="pm-wv-btn" title="Pie">&#9685;</button>
                 <button (click)="setWidgetView(w,'donut')" [class.pm-wv-active]="w.viewType==='donut'"   class="pm-wv-btn" title="Donut">&#9678;</button>
                 <button (click)="setWidgetView(w,'scatter')" [class.pm-wv-active]="w.viewType==='scatter'" class="pm-wv-btn" title="Scatter">&#8943;</button>
                 <button (click)="setWidgetView(w,'heatmap')" [class.pm-wv-active]="w.viewType==='heatmap'" class="pm-wv-btn" title="Heatmap">&#9638;</button>
+                <button (click)="setWidgetView(w,'anomaly')" [class.pm-wv-active]="w.viewType==='anomaly'" class="pm-wv-btn" title="Anomaly">&#9651;</button>
                 <button (click)="setWidgetView(w,'table')" [class.pm-wv-active]="w.viewType==='table'"   class="pm-wv-btn" title="Table">&#8803;</button>
                 <span class="pm-wctrl-sep"></span>
                 <button (click)="exportCsv(w.response)" class="pm-wctrl-btn" title="Export CSV">&#8659;</button>
+                <button (click)="cloneWidget(w)" class="pm-wctrl-btn" title="Clone widget">&#9633;&#43;</button>
                 <button (click)="pinWidget(w)" class="pm-wctrl-btn" title="Pin to saved queries">&#128204;</button>
                 <button (click)="drillDown(w)" class="pm-wctrl-btn" title="Open in Query tab">&#8599;</button>
+                <button (click)="w.showSettings = !w.showSettings" class="pm-wctrl-btn"
+                  [class.pm-wctrl-btn--active]="w.showSettings" title="Widget settings">&#9881;</button>
               </ng-container>
               <button (click)="refreshWidget(w)" [disabled]="w.loading" class="pm-wctrl-btn" title="Refresh">&#8635;</button>
               <button (click)="removeWidget(w.id)" class="pm-wctrl-btn pm-wctrl-btn--close" title="Remove">&#10005;</button>
+            </div>
+          </div>
+
+          <!-- Widget settings panel (F3 + F4) -->
+          <div *ngIf="w.showSettings" class="pm-widget-settings">
+            <div class="pm-widget-settings__row">
+              <label class="pm-widget-settings__label">Auto-refresh (min)</label>
+              <input #refreshInput type="number" min="0" max="1440"
+                [value]="w.refreshIntervalMinutes ?? ''"
+                class="pm-input pm-input--sm" placeholder="off" style="width:70px" />
+              <button (click)="setWidgetAutoRefresh(w, +refreshInput.value)"
+                class="pm-btn pm-btn--primary pm-btn--sm">Set</button>
+              <span *ngIf="w.refreshIntervalMinutes" class="pm-badge pm-badge--success">
+                every {{ w.refreshIntervalMinutes }}m
+              </span>
+            </div>
+            <div class="pm-widget-settings__row">
+              <label class="pm-widget-settings__label">KPI thresholds</label>
+              <input #tminInput type="number" [value]="w.thresholdMin ?? ''"
+                class="pm-input pm-input--sm" placeholder="min" style="width:70px" />
+              <span style="padding:0 4px">–</span>
+              <input #tmaxInput type="number" [value]="w.thresholdMax ?? ''"
+                class="pm-input pm-input--sm" placeholder="max" style="width:70px" />
+              <button (click)="saveWidgetThresholds(w, tminInput.value, tmaxInput.value)"
+                class="pm-btn pm-btn--primary pm-btn--sm">Save</button>
             </div>
           </div>
 
@@ -367,15 +428,22 @@
             </div>
 
             <!-- KPI -->
-            <div *ngIf="!w.loading && !w.error && w.viewType === 'kpi'" class="pm-widget-kpi">
+            <div *ngIf="!w.loading && !w.error && w.viewType === 'kpi'"
+              class="pm-widget-kpi" [ngClass]="getKpiAlertClass(w)">
               <div class="pm-widget-kpi__value">{{ getWidgetKpi(w) }}</div>
               <div class="pm-widget-kpi__label">{{ getColumnKeys(w.response)[0] }}</div>
+              <div *ngIf="w.thresholdMin !== undefined || w.thresholdMax !== undefined"
+                class="pm-kpi-threshold-hint">
+                <span *ngIf="w.thresholdMin !== undefined">min: {{ w.thresholdMin }}</span>
+                <span *ngIf="w.thresholdMax !== undefined">max: {{ w.thresholdMax }}</span>
+              </div>
             </div>
 
             <!-- Chart.js charts: bar, line, pie, donut, scatter -->
             <ng-container *ngIf="!w.loading && !w.error && isChartJsType(w.viewType)">
               <ng-container *ngIf="getChartJsData(w.response, w.viewType) as data">
-                <pm-chart-widget [chartType]="toChartJsType(w.viewType)" [chartData]="data"></pm-chart-widget>
+                <pm-chart-widget [chartType]="toChartJsType(w.viewType)" [chartData]="data"
+                  (barClick)="onChartBarClick(w, $event)"></pm-chart-widget>
               </ng-container>
               <div *ngIf="!getChartJsData(w.response, w.viewType)" class="pm-widget-state pm-widget-state--warn">
                 Not enough data for this chart type — try Table
@@ -409,6 +477,36 @@
               </ng-container>
               <div *ngIf="!getHeatmapData(w.response)" class="pm-widget-state pm-widget-state--warn">
                 Heatmap needs 2 category columns + 1 numeric — try Table
+              </div>
+            </ng-container>
+
+            <!-- Anomaly view (F11) -->
+            <ng-container *ngIf="!w.loading && !w.error && w.viewType === 'anomaly'">
+              <div *ngIf="w.anomalyLoading" class="pm-widget-state">
+                <span class="pm-spinner"></span> Detecting anomalies…
+              </div>
+              <div *ngIf="!w.anomalyLoading && w.anomalyResult">
+                <div class="pm-anomaly-meta">
+                  mean: <strong>{{ w.anomalyResult.mean | number:'1.0-2' }}</strong>
+                  &nbsp;±&nbsp;{{ w.anomalyResult.stddev | number:'1.0-2' }} (σ)
+                  &nbsp;·&nbsp;threshold: |z| &gt; 2
+                </div>
+                <div *ngIf="w.anomalyResult.anomalies.length === 0" class="pm-widget-state pm-widget-state--ok">
+                  ✓ No anomalies detected
+                </div>
+                <div *ngIf="w.anomalyResult.anomalies.length > 0" class="pm-anomaly-list">
+                  <div *ngFor="let a of w.anomalyResult.anomalies" class="pm-anomaly-item"
+                    [class.pm-anomaly-item--high]="a.direction === 'high'"
+                    [class.pm-anomaly-item--low]="a.direction === 'low'">
+                    <span class="pm-anomaly-label">{{ a.label }}</span>
+                    <span class="pm-anomaly-val">{{ a.value | number:'1.0-2' }}</span>
+                    <span class="pm-anomaly-badge">z={{ a.z_score }}</span>
+                    <span class="pm-anomaly-dir">{{ a.direction === 'high' ? '▲ HIGH' : '▼ LOW' }}</span>
+                  </div>
+                </div>
+              </div>
+              <div *ngIf="!w.anomalyLoading && !w.anomalyResult" class="pm-widget-state pm-widget-state--warn">
+                No numeric data to analyse — try Table or Bar chart
               </div>
             </ng-container>
 
@@ -448,15 +546,25 @@
           <code>"refresh all"</code>
           <code>"show as kpi"</code>
         </div>
-        <div class="pm-dash-bar__row">
+        <div class="pm-dash-bar__row" style="position:relative">
           <input [(ngModel)]="dashboardInput"
             (keydown.enter)="processDashboardInput()"
+            (focus)="onDashboardInputFocus()"
+            (input)="onDashboardInputChange()"
+            (blur)="hideSuggestions()"
             placeholder="Add a widget, change a view, or say 'refresh all'…"
             class="pm-dash-input" />
           <button (click)="processDashboardInput()" [disabled]="!dashboardInput.trim()"
             class="pm-btn pm-btn--primary">
             Go
           </button>
+          <!-- Suggestions dropdown (F8) -->
+          <div *ngIf="showSuggestions && filteredSuggestions.length > 0" class="pm-suggestions">
+            <button *ngFor="let s of filteredSuggestions" (mousedown)="selectSuggestion(s)"
+              class="pm-suggestion-item">
+              {{ s }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -511,9 +619,13 @@
           </div>
         </div>
 
-        <!-- Recent queries table -->
+        <!-- Recent queries table (F7) -->
         <div class="pm-card" *ngIf="analytics.recentQueries.length > 0">
-          <div class="pm-card__label">Recent Queries</div>
+          <div class="pm-card__label" style="display:flex;align-items:center;gap:12px">
+            Recent Queries
+            <input [(ngModel)]="historySearch" placeholder="Search history…"
+              class="pm-input pm-input--sm" style="width:200px;font-weight:400" />
+          </div>
           <div class="pm-table-wrap">
             <table class="pm-table">
               <thead>
@@ -523,15 +635,20 @@
                   <th>Status</th>
                   <th>Time (ms)</th>
                   <th>When</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                <tr *ngFor="let q of analytics.recentQueries">
+                <tr *ngFor="let q of filteredHistory">
                   <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" [title]="q.question">{{ q.question }}</td>
                   <td><span class="pm-badge pm-badge--primary">{{ q.domain }}</span></td>
                   <td><span class="pm-badge" [class.pm-badge--success]="q.status === 'ok'" [class.pm-badge--danger]="q.status !== 'ok' && q.status !== 'clarification_needed'">{{ q.status }}</span></td>
                   <td>{{ q.executionMs }}</td>
                   <td>{{ q.createdAtUtc | date:'short' }}</td>
+                  <td>
+                    <button (click)="switchTab('dashboard'); addWidget(q.question)"
+                      class="pm-btn pm-btn--ghost pm-btn--sm" title="Add to dashboard">+Widget</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
