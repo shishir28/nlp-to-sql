@@ -1,42 +1,88 @@
+// ─── Design tokens ─────────────────────────────────────────────────────────────
 :root {
-  --pm-primary: #1e7dc8;
-  --pm-primary-dark: #1565a8;
-  --pm-cyan: #14cdeb;
-  --pm-success: #a5c832;
-  --pm-warning: #d66e0a;
-  --pm-danger: #d2300e;
-  --pm-info: #466ea0;
+  // Slate scale
+  --sl-50:  #f8fafc;
+  --sl-100: #f1f5f9;
+  --sl-200: #e2e8f0;
+  --sl-300: #cbd5e1;
+  --sl-400: #94a3b8;
+  --sl-500: #64748b;
+  --sl-600: #475569;
+  --sl-700: #334155;
+  --sl-800: #1e293b;
+  --sl-900: #0f172a;
 
-  --pm-gray-50:  #f8fafc;
-  --pm-gray-100: #f1f1f1;
-  --pm-gray-200: #e5e7eb;
-  --pm-gray-300: #d1d5db;
-  --pm-gray-400: #9ca3af;
-  --pm-gray-500: #6e6e6e;
-  --pm-gray-700: #374151;
-  --pm-gray-900: #111827;
+  // Blue primary
+  --blue-50:  #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
 
-  --pm-shadow-sm: 0 2px 4px rgba(0,0,0,.08);
-  --pm-shadow-md: 0 4px 10px rgba(0,0,0,.1);
+  // Semantic
+  --bg:          #f1f5f9;
+  --surface:     #ffffff;
+  --border:      var(--sl-200);
+  --border-soft: var(--sl-100);
+  --text-primary:   var(--sl-900);
+  --text-secondary: var(--sl-600);
+  --text-muted:     var(--sl-400);
+  --accent:      var(--blue-600);
+  --accent-dark: var(--blue-700);
+  --accent-bg:   var(--blue-50);
+  --accent-border: var(--blue-200);
+  --destructive: #ef4444;
+  --success:     #16a34a;
+  --warning:     #d97706;
 
-  --pm-radius: 6px;
-  --pm-radius-lg: 8px;
+  --radius-sm: 6px;
+  --radius:    8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-xs: 0 1px 2px rgba(15,23,42,.04);
+  --shadow-sm: 0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  --shadow-md: 0 4px 6px -1px rgba(15,23,42,.07), 0 2px 4px -2px rgba(15,23,42,.05);
+  --shadow-lg: 0 10px 15px -3px rgba(15,23,42,.08), 0 4px 6px -4px rgba(15,23,42,.04);
+  --shadow-xl: 0 20px 25px -5px rgba(15,23,42,.10), 0 8px 10px -6px rgba(15,23,42,.05);
+
+  // Legacy aliases for pm- classes still in HTML
+  --pm-primary:      var(--accent);
+  --pm-primary-dark: var(--accent-dark);
+  --pm-cyan:         #06b6d4;
+  --pm-success:      var(--success);
+  --pm-warning:      var(--warning);
+  --pm-danger:       var(--destructive);
+  --pm-info:         var(--accent);
+  --pm-gray-50:  var(--sl-50);
+  --pm-gray-100: var(--sl-100);
+  --pm-gray-200: var(--sl-200);
+  --pm-gray-300: var(--sl-300);
+  --pm-gray-400: var(--sl-400);
+  --pm-gray-500: var(--sl-500);
+  --pm-gray-600: var(--sl-600);
+  --pm-gray-700: var(--sl-700);
+  --pm-gray-800: var(--sl-800);
+  --pm-gray-900: var(--sl-900);
+  --pm-shadow-sm:  var(--shadow-sm);
+  --pm-shadow-md:  var(--shadow-md);
+  --pm-shadow-lg:  var(--shadow-lg);
+  --pm-radius:     var(--radius-sm);
+  --pm-radius-lg:  var(--radius);
 }
 
-* {
-  box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; }
 
-html {
-  font-size: 13px;
-}
+html { font-size: 14px; scroll-behavior: smooth; }
 
 body {
   margin: 0;
-  font-family: 'Nunito Sans', 'Open Sans', 'Helvetica Neue', Arial, sans-serif;
-  font-size: 13px;
-  color: var(--pm-gray-700);
-  background: var(--pm-gray-100);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
