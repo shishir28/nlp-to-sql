@@ -1,5 +1,5 @@
 {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "dialect": "mysql8",
     "selectOnly": true,
     "noViews": true,
@@ -21,7 +21,23 @@
         "MaintenanceJobs",
         "Inspections",
         "OwnerStatements",
-        "OwnerStatementLines"
+        "OwnerStatementLines",
+        "Vacancies",
+        "Listings",
+        "LettingEnquiries",
+        "LettingApplications",
+        "MaintenanceQuotes",
+        "ArrearsEscalations",
+        "TrustLedger",
+        "ManagementFeeSchedules",
+        "ManagementFeeTransactions",
+        "Invoices",
+        "InvoiceLineItems",
+        "ComplianceItems",
+        "ComplianceChecks",
+        "PMTasks",
+        "LeaseRenewalOutcomes",
+        "ConversationHistory"
     ],
     "globalReferenceTables": [
         "RefStatesAU",
@@ -41,7 +57,23 @@
         "MaintenanceJobs",
         "Inspections",
         "OwnerStatements",
-        "OwnerStatementLines"
+        "OwnerStatementLines",
+        "Vacancies",
+        "Listings",
+        "LettingEnquiries",
+        "LettingApplications",
+        "MaintenanceQuotes",
+        "ArrearsEscalations",
+        "TrustLedger",
+        "ManagementFeeSchedules",
+        "ManagementFeeTransactions",
+        "Invoices",
+        "InvoiceLineItems",
+        "ComplianceItems",
+        "ComplianceChecks",
+        "PMTasks",
+        "LeaseRenewalOutcomes",
+        "ConversationHistory"
     ],
     "allowedJoinEdges": [
         {
@@ -127,6 +159,111 @@
             "to": "RefStatesAU",
             "toColumn": "StateCode",
             "requireTenantMatch": false
+        },
+        {
+            "from": "Properties",
+            "fromColumn": "PropertyId",
+            "to": "Vacancies",
+            "toColumn": "PropertyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Vacancies",
+            "fromColumn": "VacancyId",
+            "to": "Listings",
+            "toColumn": "VacancyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Vacancies",
+            "fromColumn": "VacancyId",
+            "to": "LettingEnquiries",
+            "toColumn": "VacancyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Vacancies",
+            "fromColumn": "VacancyId",
+            "to": "LettingApplications",
+            "toColumn": "VacancyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "MaintenanceJobs",
+            "fromColumn": "MaintenanceJobId",
+            "to": "MaintenanceQuotes",
+            "toColumn": "MaintenanceJobId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Tenancies",
+            "fromColumn": "TenancyId",
+            "to": "ArrearsEscalations",
+            "toColumn": "TenancyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Owners",
+            "fromColumn": "OwnerId",
+            "to": "TrustLedger",
+            "toColumn": "OwnerId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Owners",
+            "fromColumn": "OwnerId",
+            "to": "ManagementFeeSchedules",
+            "toColumn": "OwnerId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "ManagementFeeSchedules",
+            "fromColumn": "FeeScheduleId",
+            "to": "ManagementFeeTransactions",
+            "toColumn": "FeeScheduleId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Properties",
+            "fromColumn": "PropertyId",
+            "to": "Invoices",
+            "toColumn": "PropertyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Invoices",
+            "fromColumn": "InvoiceId",
+            "to": "InvoiceLineItems",
+            "toColumn": "InvoiceId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Properties",
+            "fromColumn": "PropertyId",
+            "to": "ComplianceItems",
+            "toColumn": "PropertyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "ComplianceItems",
+            "fromColumn": "ComplianceItemId",
+            "to": "ComplianceChecks",
+            "toColumn": "ComplianceItemId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Tenancies",
+            "fromColumn": "TenancyId",
+            "to": "LeaseRenewalOutcomes",
+            "toColumn": "TenancyId",
+            "requireTenantMatch": true
+        },
+        {
+            "from": "Vendors",
+            "fromColumn": "VendorId",
+            "to": "Invoices",
+            "toColumn": "VendorId",
+            "requireTenantMatch": true
         }
     ],
     "allowedFunctions": [

@@ -1,6 +1,14 @@
 import { Injectable } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { Observable } from "rxjs";
+import {
+  VacancyDto, LettingApplicationDto,
+  ArrearsSummaryDto, ArrearsEscalationDto,
+  ComplianceSummaryDto, ComplianceItemDto,
+  TrustLedgerSummaryDto, TrustLedgerEntryDto,
+  PMTaskSummaryDto, PMTaskDto,
+  LeaseRenewalSummaryDto, LeaseRenewalOutcomeDto
+} from "./models";
 
 export interface SavedQueryDto {
   id: number;
@@ -165,5 +173,88 @@ export class DashboardService {
     return this.http.patch<void>(`${this.base}/dashboardwidgets/${id}/thresholds`, { thresholdMin, thresholdMax }, {
       params: { customerId },
     });
+  }
+
+  // ─── Vacancy & Letting ────────────────────────────────────────────────────
+
+  getVacancies(customerId: string, status?: string): Observable<VacancyDto[]> {
+    const params: any = { customerId };
+    if (status) params['status'] = status;
+    return this.http.get<VacancyDto[]>(`${this.base}/vacancy`, { params });
+  }
+
+  getLettingApplications(customerId: string, status?: string): Observable<LettingApplicationDto[]> {
+    const params: any = { customerId };
+    if (status) params['status'] = status;
+    return this.http.get<LettingApplicationDto[]>(`${this.base}/vacancy/applications`, { params });
+  }
+
+  // ─── Arrears & Escalation ────────────────────────────────────────────────
+
+  getArrearsSummary(customerId: string): Observable<ArrearsSummaryDto> {
+    return this.http.get<ArrearsSummaryDto>(`${this.base}/arrears/summary`, { params: { customerId } });
+  }
+
+  getArrearsEscalations(customerId: string): Observable<ArrearsEscalationDto[]> {
+    return this.http.get<ArrearsEscalationDto[]>(`${this.base}/arrears/escalations`, { params: { customerId } });
+  }
+
+  // ─── Compliance Calendar ─────────────────────────────────────────────────
+
+  getComplianceSummary(customerId: string): Observable<ComplianceSummaryDto> {
+    return this.http.get<ComplianceSummaryDto>(`${this.base}/compliance/summary`, { params: { customerId } });
+  }
+
+  getComplianceOverdue(customerId: string): Observable<ComplianceItemDto[]> {
+    return this.http.get<ComplianceItemDto[]>(`${this.base}/compliance/overdue`, { params: { customerId } });
+  }
+
+  getComplianceDueSoon(customerId: string, daysAhead = 30): Observable<ComplianceItemDto[]> {
+    return this.http.get<ComplianceItemDto[]>(`${this.base}/compliance/due-soon`, {
+      params: { customerId, daysAhead: String(daysAhead) }
+    });
+  }
+
+  // ─── Trust Ledger ────────────────────────────────────────────────────────
+
+  getTrustLedgerOwners(customerId: string): Observable<TrustLedgerSummaryDto[]> {
+    return this.http.get<TrustLedgerSummaryDto[]>(`${this.base}/trust-ledger/owners`, { params: { customerId } });
+  }
+
+  getTrustLedgerEntries(customerId: string, ownerId: number, limit = 50): Observable<TrustLedgerEntryDto[]> {
+    return this.http.get<TrustLedgerEntryDto[]>(`${this.base}/trust-ledger/owners/${ownerId}/entries`, {
+      params: { customerId, limit: String(limit) }
+    });
+  }
+
+  // ─── PM Tasks ────────────────────────────────────────────────────────────
+
+  getPMTaskSummary(customerId: string, assignedTo?: string): Observable<PMTaskSummaryDto> {
+    const params: any = { customerId };
+    if (assignedTo) params['assignedTo'] = assignedTo;
+    return this.http.get<PMTaskSummaryDto>(`${this.base}/pm-tasks/summary`, { params });
+  }
+
+  getPMTasks(customerId: string, assignedTo?: string, status?: string): Observable<PMTaskDto[]> {
+    const params: any = { customerId };
+    if (assignedTo) params['assignedTo'] = assignedTo;
+    if (status) params['status'] = status;
+    return this.http.get<PMTaskDto[]>(`${this.base}/pm-tasks`, { params });
+  }
+
+  updatePMTaskStatus(taskId: number, status: string, customerId: string): Observable<void> {
+    return this.http.patch<void>(`${this.base}/pm-tasks/${taskId}/status`, { status }, { params: { customerId } });
+  }
+
+  // ─── Lease Renewal ───────────────────────────────────────────────────────
+
+  getLeaseRenewalSummary(customerId: string): Observable<LeaseRenewalSummaryDto> {
+    return this.http.get<LeaseRenewalSummaryDto>(`${this.base}/lease-renewal/summary`, { params: { customerId } });
+  }
+
+  getLeaseRenewals(customerId: string, outcomeCode?: string): Observable<LeaseRenewalOutcomeDto[]> {
+    const params: any = { customerId };
+    if (outcomeCode) params['outcomeCode'] = outcomeCode;
+    return this.http.get<LeaseRenewalOutcomeDto[]>(`${this.base}/lease-renewal`, { params });
   }
 }

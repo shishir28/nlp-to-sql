@@ -14,6 +14,12 @@
     <nav class="pm-topbar__tabs">
       <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'query'" (click)="switchTab('query')">Query</button>
       <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'dashboard'" (click)="switchTab('dashboard')">Dashboard</button>
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'tasks'" (click)="switchTab('tasks')">Tasks</button>
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'vacancies'" (click)="switchTab('vacancies')">Vacancies</button>
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'arrears'" (click)="switchTab('arrears')">Arrears</button>
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'compliance'" (click)="switchTab('compliance')">Compliance</button>
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'renewals'" (click)="switchTab('renewals')">Renewals</button>
+      <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'trust-ledger'" (click)="switchTab('trust-ledger')">Trust Ledger</button>
       <button class="pm-tab-btn" [class.pm-tab-btn--active]="activeTab === 'analytics'" (click)="switchTab('analytics')">Analytics</button>
     </nav>
 
@@ -653,6 +659,365 @@
               </tbody>
             </table>
           </div>
+        </div>
+      </ng-container>
+    </ng-container>
+
+    <!-- ============ TASKS TAB ============ -->
+    <ng-container *ngIf="activeTab === 'tasks'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">PM Tasks</h1>
+          <p class="pm-page-desc">Open tasks and follow-up actions</p>
+        </div>
+        <button class="pm-btn pm-btn--secondary" (click)="loadPMTasks()">Refresh</button>
+      </div>
+
+      <div *ngIf="pmTasksLoading" class="pm-loading">Loading tasks…</div>
+
+      <ng-container *ngIf="pmTaskSummary && !pmTasksLoading">
+        <!-- KPI Row -->
+        <div class="pm-kpi-row">
+          <div class="pm-kpi-card pm-kpi-card--blue">
+            <div class="pm-kpi-label">Open Tasks</div>
+            <div class="pm-kpi-value">{{ pmTaskSummary.openCount }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--red">
+            <div class="pm-kpi-label">Overdue</div>
+            <div class="pm-kpi-value">{{ pmTaskSummary.overdueCount }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--amber">
+            <div class="pm-kpi-label">Due Today</div>
+            <div class="pm-kpi-value">{{ pmTaskSummary.dueTodayCount }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--green">
+            <div class="pm-kpi-label">Due This Week</div>
+            <div class="pm-kpi-value">{{ pmTaskSummary.dueThisWeekCount }}</div>
+          </div>
+        </div>
+
+        <!-- Task List -->
+        <div class="pm-card">
+          <div class="pm-card__header">
+            <span class="pm-card__title">All Open Tasks</span>
+            <select [(ngModel)]="pmTaskStatusFilter" class="pm-filter-select" (change)="loadPMTasks()">
+              <option value="OPEN">Open</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="">All</option>
+            </select>
+          </div>
+          <table class="pm-table">
+            <thead><tr>
+              <th>Title</th><th>Category</th><th>Priority</th><th>Assigned To</th>
+              <th>Due Date</th><th>Property</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody>
+              <tr *ngFor="let t of pmTaskSummary.tasks" [class.pm-row--overdue]="t.isOverdue">
+                <td>{{ t.title }}</td>
+                <td><span class="pm-badge pm-badge--neutral">{{ t.category }}</span></td>
+                <td><span class="pm-badge" [class.pm-badge--red]="t.priority==='URGENT'" [class.pm-badge--amber]="t.priority==='HIGH'" [class.pm-badge--neutral]="t.priority==='MEDIUM'||t.priority==='LOW'">{{ t.priority }}</span></td>
+                <td>{{ t.assignedToUserId }}</td>
+                <td [class.pm-text--danger]="t.isOverdue">{{ t.dueDate || '—' }}</td>
+                <td>{{ t.propertyAddress || '—' }}</td>
+                <td><span class="pm-badge pm-badge--neutral">{{ t.status }}</span></td>
+                <td>
+                  <button *ngIf="t.status !== 'DONE'" class="pm-btn pm-btn--ghost pm-btn--sm" (click)="completeTask(t)">Done</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </ng-container>
+    </ng-container>
+
+    <!-- ============ VACANCIES TAB ============ -->
+    <ng-container *ngIf="activeTab === 'vacancies'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">Vacancies &amp; Letting</h1>
+          <p class="pm-page-desc">Available properties, listings and applications</p>
+        </div>
+        <button class="pm-btn pm-btn--secondary" (click)="loadVacancies()">Refresh</button>
+      </div>
+
+      <div *ngIf="vacanciesLoading" class="pm-loading">Loading vacancies…</div>
+
+      <ng-container *ngIf="!vacanciesLoading">
+        <!-- Vacant Properties -->
+        <div class="pm-card">
+          <div class="pm-card__header">
+            <span class="pm-card__title">Vacant Properties ({{ vacancies.length }})</span>
+          </div>
+          <table class="pm-table">
+            <thead><tr>
+              <th>Property</th><th>Status</th><th>Rent</th><th>Available From</th>
+              <th>Days Vacant</th><th>Enquiries</th><th>Applications</th>
+            </tr></thead>
+            <tbody>
+              <tr *ngFor="let v of vacancies">
+                <td>{{ v.propertyAddress }}</td>
+                <td><span class="pm-badge pm-badge--blue">{{ v.status }}</span></td>
+                <td>{{ v.advertisedRent ? ('$' + v.advertisedRent + '/' + v.rentFrequency) : '—' }}</td>
+                <td>{{ v.availableFrom || '—' }}</td>
+                <td [class.pm-text--danger]="v.daysVacant > 28">{{ v.daysVacant }} days</td>
+                <td>{{ v.enquiryCount }}</td>
+                <td>{{ v.applicationCount }}</td>
+              </tr>
+              <tr *ngIf="!vacancies.length"><td colspan="7" class="pm-empty">No vacancies found</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Applications -->
+        <div class="pm-card" style="margin-top:1.5rem">
+          <div class="pm-card__header">
+            <span class="pm-card__title">Letting Applications ({{ lettingApplications.length }})</span>
+          </div>
+          <table class="pm-table">
+            <thead><tr>
+              <th>Property</th><th>Applicant</th><th>Status</th>
+              <th>Move-In</th><th>Offered Rent</th><th>Applicants</th><th>Submitted</th>
+            </tr></thead>
+            <tbody>
+              <tr *ngFor="let a of lettingApplications">
+                <td>{{ a.propertyAddress }}</td>
+                <td>{{ a.applicantName }}</td>
+                <td><span class="pm-badge" [class.pm-badge--green]="a.status==='APPROVED'" [class.pm-badge--amber]="a.status==='REVIEWING'" [class.pm-badge--neutral]="a.status==='RECEIVED'">{{ a.status }}</span></td>
+                <td>{{ a.proposedMoveIn || '—' }}</td>
+                <td>{{ a.offeredRent ? ('$' + a.offeredRent) : '—' }}</td>
+                <td>{{ a.applicantCount || '—' }}</td>
+                <td>{{ a.submittedAt | date:'dd MMM' }}</td>
+              </tr>
+              <tr *ngIf="!lettingApplications.length"><td colspan="7" class="pm-empty">No applications</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </ng-container>
+    </ng-container>
+
+    <!-- ============ ARREARS TAB ============ -->
+    <ng-container *ngIf="activeTab === 'arrears'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">Arrears &amp; Escalations</h1>
+          <p class="pm-page-desc">Overdue rent and escalation stages</p>
+        </div>
+        <button class="pm-btn pm-btn--secondary" (click)="loadArrears()">Refresh</button>
+      </div>
+
+      <div *ngIf="arrearsLoading" class="pm-loading">Loading arrears…</div>
+
+      <ng-container *ngIf="arrearsSummary && !arrearsLoading">
+        <div class="pm-kpi-row">
+          <div class="pm-kpi-card pm-kpi-card--red">
+            <div class="pm-kpi-label">Tenancies in Arrears</div>
+            <div class="pm-kpi-value">{{ arrearsSummary.totalTenanciesInArrears }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--red">
+            <div class="pm-kpi-label">Total Owed</div>
+            <div class="pm-kpi-value">${{ arrearsSummary.totalArrearsAmount | number:'1.0-0' }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--amber">
+            <div class="pm-kpi-label">At Tribunal</div>
+            <div class="pm-kpi-value">{{ arrearsSummary.atTribunalCount }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--blue">
+            <div class="pm-kpi-label">Payment Plans</div>
+            <div class="pm-kpi-value">{{ arrearsSummary.onPaymentPlanCount }}</div>
+          </div>
+        </div>
+
+        <div class="pm-card">
+          <div class="pm-card__header"><span class="pm-card__title">Active Escalations</span></div>
+          <table class="pm-table">
+            <thead><tr>
+              <th>Property</th><th>Tenant</th><th>Stage</th><th>Owed</th>
+              <th>Days Overdue</th><th>Next Action</th><th>Handled By</th>
+            </tr></thead>
+            <tbody>
+              <tr *ngFor="let e of arrearsSummary.escalations">
+                <td>{{ e.propertyAddress }}</td>
+                <td>{{ e.tenantName }}</td>
+                <td><span class="pm-badge" [class.pm-badge--red]="e.escalationStage==='TRIBUNAL'" [class.pm-badge--amber]="e.escalationStage!=='TRIBUNAL'">{{ e.escalationStage }}</span></td>
+                <td class="pm-text--danger">${{ e.arrearsAmount | number:'1.2-2' }}</td>
+                <td>{{ e.arrearsDays }} days</td>
+                <td>{{ e.nextActionDate || '—' }}</td>
+                <td>{{ e.handledByUserId || '—' }}</td>
+              </tr>
+              <tr *ngIf="!arrearsSummary.escalations.length"><td colspan="7" class="pm-empty">No active escalations</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </ng-container>
+    </ng-container>
+
+    <!-- ============ COMPLIANCE TAB ============ -->
+    <ng-container *ngIf="activeTab === 'compliance'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">Compliance Calendar</h1>
+          <p class="pm-page-desc">Smoke alarms, RCDs, gas certificates and safety checks</p>
+        </div>
+        <button class="pm-btn pm-btn--secondary" (click)="loadCompliance()">Refresh</button>
+      </div>
+
+      <div *ngIf="complianceLoading" class="pm-loading">Loading compliance…</div>
+
+      <ng-container *ngIf="complianceSummary && !complianceLoading">
+        <div class="pm-kpi-row">
+          <div class="pm-kpi-card pm-kpi-card--blue">
+            <div class="pm-kpi-label">Total Items</div>
+            <div class="pm-kpi-value">{{ complianceSummary.totalItems }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--red">
+            <div class="pm-kpi-label">Overdue</div>
+            <div class="pm-kpi-value">{{ complianceSummary.overdueCount }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--amber">
+            <div class="pm-kpi-label">Due Soon (30d)</div>
+            <div class="pm-kpi-value">{{ complianceSummary.dueSoonCount }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--green">
+            <div class="pm-kpi-label">Passed</div>
+            <div class="pm-kpi-value">{{ complianceSummary.passedCount }}</div>
+          </div>
+        </div>
+
+        <div class="pm-card" *ngIf="complianceSummary.overdueItems.length">
+          <div class="pm-card__header"><span class="pm-card__title pm-text--danger">Overdue Items</span></div>
+          <table class="pm-table">
+            <thead><tr><th>Property</th><th>Type</th><th>Description</th><th>Due Date</th><th>Days Overdue</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr *ngFor="let c of complianceSummary.overdueItems">
+                <td>{{ c.propertyAddress }}</td>
+                <td><span class="pm-badge pm-badge--red">{{ c.complianceType }}</span></td>
+                <td>{{ c.description }}</td>
+                <td class="pm-text--danger">{{ c.dueDate }}</td>
+                <td class="pm-text--danger">{{ -c.daysUntilDue }} days</td>
+                <td>{{ c.status }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pm-card" style="margin-top:1.5rem" *ngIf="complianceSummary.dueSoonItems.length">
+          <div class="pm-card__header"><span class="pm-card__title pm-text--warning">Due in Next 30 Days</span></div>
+          <table class="pm-table">
+            <thead><tr><th>Property</th><th>Type</th><th>Description</th><th>Due Date</th><th>Days Remaining</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr *ngFor="let c of complianceSummary.dueSoonItems">
+                <td>{{ c.propertyAddress }}</td>
+                <td><span class="pm-badge pm-badge--amber">{{ c.complianceType }}</span></td>
+                <td>{{ c.description }}</td>
+                <td>{{ c.dueDate }}</td>
+                <td>{{ c.daysUntilDue }} days</td>
+                <td>{{ c.status }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </ng-container>
+    </ng-container>
+
+    <!-- ============ RENEWALS TAB ============ -->
+    <ng-container *ngIf="activeTab === 'renewals'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">Lease Renewals</h1>
+          <p class="pm-page-desc">Upcoming lease expiries and renewal outcomes</p>
+        </div>
+        <button class="pm-btn pm-btn--secondary" (click)="loadRenewals()">Refresh</button>
+      </div>
+
+      <div *ngIf="renewalsLoading" class="pm-loading">Loading renewals…</div>
+
+      <ng-container *ngIf="renewalSummary && !renewalsLoading">
+        <div class="pm-kpi-row">
+          <div class="pm-kpi-card pm-kpi-card--blue">
+            <div class="pm-kpi-label">Total Upcoming</div>
+            <div class="pm-kpi-value">{{ renewalSummary.totalUpcoming }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--amber">
+            <div class="pm-kpi-label">Offer Sent</div>
+            <div class="pm-kpi-value">{{ renewalSummary.offeredCount }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--green">
+            <div class="pm-kpi-label">Accepted</div>
+            <div class="pm-kpi-value">{{ renewalSummary.acceptedCount }}</div>
+          </div>
+          <div class="pm-kpi-card pm-kpi-card--red">
+            <div class="pm-kpi-label">Vacating</div>
+            <div class="pm-kpi-value">{{ renewalSummary.vacatingCount }}</div>
+          </div>
+        </div>
+
+        <div class="pm-card">
+          <div class="pm-card__header">
+            <span class="pm-card__title">Renewal Outcomes</span>
+            <select [(ngModel)]="renewalOutcomeFilter" class="pm-filter-select">
+              <option value="">All</option>
+              <option value="OFFERED">Offered</option>
+              <option value="ACCEPTED">Accepted</option>
+              <option value="VACATING">Vacating</option>
+              <option value="PERIODIC">Periodic</option>
+              <option value="DECLINED">Declined</option>
+            </select>
+          </div>
+          <table class="pm-table">
+            <thead><tr>
+              <th>Property</th><th>Tenant</th><th>Lease Ends</th><th>Outcome</th>
+              <th>New Rent</th><th>Start Date</th><th>Handled By</th>
+            </tr></thead>
+            <tbody>
+              <tr *ngFor="let r of renewalSummary.renewals" [hidden]="renewalOutcomeFilter && r.outcomeCode !== renewalOutcomeFilter">
+                <td>{{ r.propertyAddress }}</td>
+                <td>{{ r.tenantName }}</td>
+                <td>{{ r.leaseEndDate }}</td>
+                <td><span class="pm-badge"
+                  [class.pm-badge--green]="r.outcomeCode==='ACCEPTED'"
+                  [class.pm-badge--red]="r.outcomeCode==='VACATING'||r.outcomeCode==='DECLINED'"
+                  [class.pm-badge--amber]="r.outcomeCode==='OFFERED'||r.outcomeCode==='PERIODIC'">{{ r.outcomeCode }}</span></td>
+                <td>{{ r.proposedNewRent ? ('$' + r.proposedNewRent) : '—' }}</td>
+                <td>{{ r.proposedStartDate || '—' }}</td>
+                <td>{{ r.handledByUserId || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </ng-container>
+    </ng-container>
+
+    <!-- ============ TRUST LEDGER TAB ============ -->
+    <ng-container *ngIf="activeTab === 'trust-ledger'">
+      <div class="pm-page-header">
+        <div>
+          <h1 class="pm-page-title">Trust Ledger</h1>
+          <p class="pm-page-desc">Owner trust accounts, disbursements and management fees</p>
+        </div>
+        <button class="pm-btn pm-btn--secondary" (click)="loadTrustLedger()">Refresh</button>
+      </div>
+
+      <div *ngIf="trustLedgerLoading" class="pm-loading">Loading trust ledger…</div>
+
+      <ng-container *ngIf="!trustLedgerLoading">
+        <div class="pm-card">
+          <div class="pm-card__header"><span class="pm-card__title">Owner Balances</span></div>
+          <table class="pm-table">
+            <thead><tr>
+              <th>Owner</th><th>Current Balance</th><th>Rent Received</th>
+              <th>Disbursed</th><th>Fees</th>
+            </tr></thead>
+            <tbody>
+              <tr *ngFor="let o of trustLedgerOwners">
+                <td>{{ o.ownerName }}</td>
+                <td [class.pm-text--success]="o.currentBalance > 0">${{ o.currentBalance | number:'1.2-2' }}</td>
+                <td>${{ o.totalRentIn | number:'1.2-2' }}</td>
+                <td>${{ o.totalDisbursed | number:'1.2-2' }}</td>
+                <td>${{ o.totalFees | number:'1.2-2' }}</td>
+              </tr>
+              <tr *ngIf="!trustLedgerOwners.length"><td colspan="5" class="pm-empty">No trust ledger data</td></tr>
+            </tbody>
+          </table>
         </div>
       </ng-container>
     </ng-container>

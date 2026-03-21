@@ -1,5 +1,54 @@
 {
     "domains": {
+        "vacancy": {
+            "description": "Vacant properties available for letting",
+            "keywords": ["vacancy", "vacant", "available", "listing", "listed", "days vacant", "on market", "advertised"],
+            "tables": ["Vacancies", "Listings", "Properties"],
+            "primary_table": "Vacancies",
+            "reason": "Vacancy/listing terms map to Vacancies and Listings tables"
+        },
+        "letting": {
+            "description": "Letting applications and enquiries",
+            "keywords": ["application", "applicant", "enquiry", "enquiries", "apply", "letting application", "prospective tenant", "approved application"],
+            "tables": ["LettingApplications", "LettingEnquiries", "Vacancies", "Properties"],
+            "primary_table": "LettingApplications",
+            "reason": "Application/enquiry terms map to LettingApplications table"
+        },
+        "maintenance_workflow": {
+            "description": "Maintenance job quotes and approval workflow",
+            "keywords": ["quote", "quotes", "awaiting approval", "owner approval", "approve quote", "work order", "invoice", "scheduled maintenance"],
+            "tables": ["MaintenanceQuotes", "MaintenanceJobs", "Vendors", "Properties"],
+            "primary_table": "MaintenanceQuotes",
+            "reason": "Quote/approval terms map to MaintenanceQuotes table"
+        },
+        "arrears_escalation": {
+            "description": "Arrears escalation stages and tribunal proceedings",
+            "keywords": ["escalation", "tribunal", "vcat", "breach notice", "payment plan", "formal notice", "7-day notice", "14-day notice", "written off", "arrears stage"],
+            "tables": ["ArrearsEscalations", "Tenancies", "Tenants", "Properties"],
+            "primary_table": "ArrearsEscalations",
+            "reason": "Escalation/tribunal terms map to ArrearsEscalations table"
+        },
+        "trust_ledger": {
+            "description": "Owner trust accounts, disbursements and management fees",
+            "keywords": ["trust", "trust account", "disbursement", "management fee", "letting fee", "bond", "trust ledger", "owner balance", "fees charged", "fee schedule"],
+            "tables": ["TrustLedger", "ManagementFeeSchedules", "ManagementFeeTransactions", "Owners", "Properties"],
+            "primary_table": "TrustLedger",
+            "reason": "Trust/disbursement/fee terms map to TrustLedger table"
+        },
+        "compliance_calendar": {
+            "description": "Compliance items, smoke alarms, RCDs and certificate due dates",
+            "keywords": ["smoke alarm", "rcd", "gas certificate", "electrical certificate", "compliance item", "compliance due", "overdue compliance", "certificate", "compliance check", "compliance expiry"],
+            "tables": ["ComplianceItems", "ComplianceChecks", "Properties"],
+            "primary_table": "ComplianceItems",
+            "reason": "Compliance certificate/check terms map to ComplianceItems table"
+        },
+        "pm_tasks": {
+            "description": "Property manager tasks and follow-up actions",
+            "keywords": ["task", "tasks", "to do", "todo", "follow up", "action item", "open task", "due task", "assigned task", "my tasks"],
+            "tables": ["PMTasks", "Properties", "Tenancies"],
+            "primary_table": "PMTasks",
+            "reason": "Task/to-do terms map to PMTasks table"
+        },
         "vendor": {
             "description": "Vendor and contractor management",
             "keywords": [

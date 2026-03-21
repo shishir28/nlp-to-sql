@@ -351,6 +351,121 @@ FROM OwnerStatements os
 INNER JOIN Owners o ON os.OwnerId = o.OwnerId
 GROUP BY o.OwnerId, o.FullName
 ORDER BY TotalNetPayout DESC
+LIMIT {limit}""",
+
+        "vacancy": f"""SELECT
+    v.VacancyId,
+    CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
+    v.Status,
+    v.AdvertisedRent,
+    v.RentFrequency,
+    v.AvailableFrom,
+    DATEDIFF(CURRENT_DATE, v.AvailableFrom) AS DaysVacant,
+    (SELECT COUNT(*) FROM Listings l WHERE l.VacancyId = v.VacancyId AND l.Status = 'ACTIVE') AS ActiveListings,
+    (SELECT COUNT(*) FROM LettingApplications la WHERE la.VacancyId = v.VacancyId) AS ApplicationCount
+FROM Vacancies v
+INNER JOIN Properties p ON p.PropertyId = v.PropertyId
+WHERE v.Status = 'AVAILABLE'
+ORDER BY v.AvailableFrom ASC
+LIMIT {limit}""",
+
+        "letting": f"""SELECT
+    la.ApplicationId,
+    CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
+    la.ApplicantName,
+    la.ApplicantEmail,
+    la.Status,
+    la.ProposedMoveIn,
+    la.OfferedRent,
+    la.ApplicantCount,
+    la.SubmittedAt
+FROM LettingApplications la
+INNER JOIN Vacancies v ON v.VacancyId = la.VacancyId
+INNER JOIN Properties p ON p.PropertyId = v.PropertyId
+WHERE la.Status IN ('RECEIVED', 'REVIEWING')
+ORDER BY la.SubmittedAt DESC
+LIMIT {limit}""",
+
+        "maintenance_workflow": f"""SELECT
+    q.QuoteId,
+    CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
+    mj.Description AS JobDescription,
+    v.CompanyName AS VendorName,
+    q.Amount AS QuoteAmount,
+    q.Status AS QuoteStatus,
+    q.QuoteDate,
+    mj.Priority
+FROM MaintenanceQuotes q
+INNER JOIN MaintenanceJobs mj ON mj.MaintenanceJobId = q.MaintenanceJobId
+INNER JOIN Properties p ON p.PropertyId = mj.PropertyId
+INNER JOIN Vendors v ON v.VendorId = q.VendorId
+WHERE q.Status = 'RECEIVED'
+ORDER BY mj.Priority DESC, q.QuoteDate ASC
+LIMIT {limit}""",
+
+        "arrears_escalation": f"""SELECT
+    ae.EscalationId,
+    CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
+    CONCAT(tn.FirstName, ' ', tn.LastName) AS TenantName,
+    ae.EscalationStage,
+    ae.ArrearsAmount,
+    ae.ArrearsDays,
+    ae.EscalationDate,
+    ae.NextActionDate,
+    ae.HandledByUserId
+FROM ArrearsEscalations ae
+INNER JOIN Tenancies t ON t.TenancyId = ae.TenancyId
+INNER JOIN Properties p ON p.PropertyId = t.PropertyId
+INNER JOIN Tenants tn ON tn.TenantId = t.TenantId
+WHERE ae.IsResolved = 0
+ORDER BY ae.ArrearsAmount DESC
+LIMIT {limit}""",
+
+        "trust_ledger": f"""SELECT
+    tl.TrustLedgerId,
+    CONCAT(o.FirstName, ' ', o.LastName) AS OwnerName,
+    CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
+    tl.TransactionType,
+    tl.Amount,
+    tl.RunningBalance,
+    tl.TransactionDate,
+    tl.Description
+FROM TrustLedger tl
+INNER JOIN Owners o ON o.OwnerId = tl.OwnerId
+LEFT JOIN Properties p ON p.PropertyId = tl.PropertyId
+ORDER BY tl.TransactionDate DESC, tl.TrustLedgerId DESC
+LIMIT {limit}""",
+
+        "compliance_calendar": f"""SELECT
+    ci.ComplianceItemId,
+    CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
+    ci.ComplianceType,
+    ci.Description,
+    ci.DueDate,
+    ci.Status,
+    DATEDIFF(ci.DueDate, CURRENT_DATE) AS DaysUntilDue,
+    ci.LastCheckedDate
+FROM ComplianceItems ci
+INNER JOIN Properties p ON p.PropertyId = ci.PropertyId
+WHERE ci.DueDate <= DATE_ADD(CURRENT_DATE, INTERVAL 90 DAY)
+  AND ci.Status != 'PASSED'
+ORDER BY ci.DueDate ASC
+LIMIT {limit}""",
+
+        "pm_tasks": f"""SELECT
+    pt.TaskId,
+    pt.Title,
+    pt.Category,
+    pt.Priority,
+    pt.Status,
+    pt.AssignedToUserId,
+    pt.DueDate,
+    CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
+    CASE WHEN pt.DueDate < CURRENT_DATE AND pt.Status NOT IN ('DONE','CANCELLED') THEN 1 ELSE 0 END AS IsOverdue
+FROM PMTasks pt
+LEFT JOIN Properties p ON p.PropertyId = pt.PropertyId
+WHERE pt.Status IN ('OPEN', 'IN_PROGRESS')
+ORDER BY FIELD(pt.Priority, 'URGENT', 'HIGH', 'MEDIUM', 'LOW'), pt.DueDate ASC
 LIMIT {limit}"""
     }
     

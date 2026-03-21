@@ -1433,6 +1433,49 @@
 .pm-anomaly-item--high .pm-anomaly-dir { color: #dc2626; }
 .pm-anomaly-item--low  .pm-anomaly-dir { color: var(--blue-600); }
 
+// ─── PM Domain Tab Utilities ───────────────────────────────────────────────────
+
+// Aliases so new tabs can use simpler class names
+.pm-kpi-value  { font-size: 32px; font-weight: 800; color: var(--sl-900); line-height: 1.1; letter-spacing: -1px; }
+.pm-kpi-label  { font-size: 11px; font-weight: 600; color: var(--sl-400); text-transform: uppercase; letter-spacing: 0.6px; margin-top: 5px; }
+
+.pm-kpi-card--blue  { &::before { background: linear-gradient(90deg, #60a5fa, #2563eb); } }
+.pm-kpi-card--red   { &::before { background: linear-gradient(90deg, #f87171, #dc2626); } .pm-kpi-value { color: #dc2626; } }
+.pm-kpi-card--amber { &::before { background: linear-gradient(90deg, #fbbf24, #d97706); } .pm-kpi-value { color: #d97706; } }
+.pm-kpi-card--green { &::before { background: linear-gradient(90deg, #4ade80, #16a34a); } .pm-kpi-value { color: #16a34a; } }
+
+// Additional badge colour aliases
+.pm-badge--neutral { background: var(--sl-100); border-color: var(--sl-200); color: var(--sl-500); }
+.pm-badge--blue    { background: #dbeafe; border-color: #bfdbfe; color: #1d4ed8; }
+.pm-badge--green   { background: #dcfce7; border-color: #bbf7d0; color: #16a34a; }
+.pm-badge--red     { background: #fee2e2; border-color: #fecaca; color: #dc2626; }
+.pm-badge--amber   { background: #fef3c7; border-color: #fde68a; color: #d97706; }
+
+.pm-loading {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--sl-400);
+  font-size: 14px;
+  font-weight: 500;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.pm-row--overdue td { background: #fff5f5; }
+
+.pm-text--danger  { color: #dc2626; font-weight: 600; }
+.pm-text--warning { color: #d97706; font-weight: 600; }
+.pm-text--success { color: #16a34a; font-weight: 600; }
+
+.pm-filter-select {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--sl-200);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--sl-700);
+  cursor: pointer;
+}
+
 // ─── Print styles ─────────────────────────────────────────────────────────────
 @media print {
   .pm-topbar, .pm-dash-bar, .pm-widget__controls, .pm-widget-settings,

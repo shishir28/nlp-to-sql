@@ -4,7 +4,7 @@ import { FormsModule } from "@angular/forms";
 import { Subscription } from "rxjs";
 import { HttpClient } from "@angular/common/http";
 import { QueryService, StreamEvent } from "./query.service";
-import { QueryResponse } from "./models";
+import { QueryResponse, VacancyDto, LettingApplicationDto, ArrearsSummaryDto, ComplianceSummaryDto, TrustLedgerSummaryDto, PMTaskSummaryDto, PMTaskDto, LeaseRenewalSummaryDto } from "./models";
 import { DashboardService, SavedQueryDto, AnalyticsSummary, ScheduledReportDto, DashboardWidgetRecord } from "./dashboard.service";
 import { ChartWidgetComponent } from "./chart-widget.component";
 import { ChartType } from "chart.js";
@@ -132,7 +132,36 @@ export class AppComponent implements OnInit, OnDestroy {
   ];
 
   /** Active tab */
-  activeTab: "query" | "dashboard" | "analytics" = "query";
+  activeTab: "query" | "dashboard" | "analytics" | "vacancies" | "tasks" | "compliance" | "arrears" | "trust-ledger" | "renewals" = "query";
+
+  // ─── Vacancies & Letting ────────────────────────────────────────────────
+  vacancies: VacancyDto[] = [];
+  lettingApplications: LettingApplicationDto[] = [];
+  vacanciesLoading = false;
+  vacancyStatusFilter = '';
+
+  // ─── Arrears & Escalation ────────────────────────────────────────────────
+  arrearsSummary: ArrearsSummaryDto | null = null;
+  arrearsLoading = false;
+
+  // ─── Compliance Calendar ──────────────────────────────────────────────────
+  complianceSummary: ComplianceSummaryDto | null = null;
+  complianceLoading = false;
+
+  // ─── Trust Ledger ─────────────────────────────────────────────────────────
+  trustLedgerOwners: TrustLedgerSummaryDto[] = [];
+  trustLedgerLoading = false;
+  selectedTrustOwnerId: number | null = null;
+
+  // ─── PM Tasks ─────────────────────────────────────────────────────────────
+  pmTaskSummary: PMTaskSummaryDto | null = null;
+  pmTasksLoading = false;
+  pmTaskStatusFilter = 'OPEN';
+
+  // ─── Lease Renewals ───────────────────────────────────────────────────────
+  renewalSummary: LeaseRenewalSummaryDto | null = null;
+  renewalsLoading = false;
+  renewalOutcomeFilter = '';
 
   /** Saved/pinned queries (DB-backed) */
   savedQueries: SavedQueryDto[] = [];
@@ -188,13 +217,78 @@ export class AppComponent implements OnInit, OnDestroy {
     this.autoRefreshTimers.clear();
   }
 
-  switchTab(tab: "query" | "dashboard" | "analytics"): void {
-    this.activeTab = tab;
+  switchTab(tab: string): void {
+    this.activeTab = tab as any;
     if (tab === "analytics" && !this.analytics) this.loadAnalytics();
     if (tab === "dashboard") {
       this.loadSavedQueries();
       if (this.widgets.length === 0) this.loadPersistedWidgets();
     }
+    if (tab === "vacancies" && !this.vacancies.length) this.loadVacancies();
+    if (tab === "arrears" && !this.arrearsSummary) this.loadArrears();
+    if (tab === "compliance" && !this.complianceSummary) this.loadCompliance();
+    if (tab === "trust-ledger" && !this.trustLedgerOwners.length) this.loadTrustLedger();
+    if (tab === "tasks" && !this.pmTaskSummary) this.loadPMTasks();
+    if (tab === "renewals" && !this.renewalSummary) this.loadRenewals();
+  }
+
+  // ─── PM Domain Loaders ────────────────────────────────────────────────────
+
+  loadVacancies(): void {
+    this.vacanciesLoading = true;
+    this.dashboardService.getVacancies(this.selectedCustomerId, this.vacancyStatusFilter || undefined).subscribe({
+      next: v => { this.vacancies = v; this.vacanciesLoading = false; },
+      error: () => { this.vacanciesLoading = false; }
+    });
+    this.dashboardService.getLettingApplications(this.selectedCustomerId).subscribe({
+      next: a => { this.lettingApplications = a; }
+    });
+  }
+
+  loadArrears(): void {
+    this.arrearsLoading = true;
+    this.dashboardService.getArrearsSummary(this.selectedCustomerId).subscribe({
+      next: s => { this.arrearsSummary = s; this.arrearsLoading = false; },
+      error: () => { this.arrearsLoading = false; }
+    });
+  }
+
+  loadCompliance(): void {
+    this.complianceLoading = true;
+    this.dashboardService.getComplianceSummary(this.selectedCustomerId).subscribe({
+      next: s => { this.complianceSummary = s; this.complianceLoading = false; },
+      error: () => { this.complianceLoading = false; }
+    });
+  }
+
+  loadTrustLedger(): void {
+    this.trustLedgerLoading = true;
+    this.dashboardService.getTrustLedgerOwners(this.selectedCustomerId).subscribe({
+      next: o => { this.trustLedgerOwners = o; this.trustLedgerLoading = false; },
+      error: () => { this.trustLedgerLoading = false; }
+    });
+  }
+
+  loadPMTasks(): void {
+    this.pmTasksLoading = true;
+    this.dashboardService.getPMTaskSummary(this.selectedCustomerId).subscribe({
+      next: s => { this.pmTaskSummary = s; this.pmTasksLoading = false; },
+      error: () => { this.pmTasksLoading = false; }
+    });
+  }
+
+  loadRenewals(): void {
+    this.renewalsLoading = true;
+    this.dashboardService.getLeaseRenewalSummary(this.selectedCustomerId).subscribe({
+      next: s => { this.renewalSummary = s; this.renewalsLoading = false; },
+      error: () => { this.renewalsLoading = false; }
+    });
+  }
+
+  completeTask(task: PMTaskDto): void {
+    this.dashboardService.updatePMTaskStatus(task.taskId, 'DONE', this.selectedCustomerId).subscribe({
+      next: () => { task.status = 'DONE'; }
+    });
   }
 
   loadPersistedWidgets(): void {

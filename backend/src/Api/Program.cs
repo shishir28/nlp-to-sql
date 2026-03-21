@@ -6,6 +6,7 @@ using Infrastructure.Data;
 using Infrastructure.Email;
 using Infrastructure.Logging;
 using Infrastructure.Policy;
+using Infrastructure.PropertyManagement;
 using Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -39,6 +40,15 @@ builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
 builder.Services.AddScoped<IScheduledReportRepository, ScheduledReportRepository>();
 builder.Services.AddScoped<IDashboardWidgetRepository, DashboardWidgetRepository>();
 builder.Services.AddHostedService<ReportSchedulerService>();
+
+// Property management domain repositories
+builder.Services.AddScoped<IVacancyRepository, VacancyRepository>();
+builder.Services.AddScoped<IMaintenanceWorkflowRepository, MaintenanceWorkflowRepository>();
+builder.Services.AddScoped<IArrearsRepository, ArrearsRepository>();
+builder.Services.AddScoped<ITrustLedgerRepository, TrustLedgerRepository>();
+builder.Services.AddScoped<IComplianceRepository, ComplianceRepository>();
+builder.Services.AddScoped<IPMTaskRepository, PMTaskRepository>();
+builder.Services.AddScoped<ILeaseRenewalRepository, LeaseRenewalRepository>();
 
 // CORS for local dev
 builder.Services.AddCors(options =>
