@@ -129,14 +129,16 @@ public sealed class NlSqlOrchestrator(
                 agentResponse.DetectedDomain ?? "unknown", agentResponse.SqlCandidate, firewallResult.RewrittenSql,
                 "ok", firewallResult.RuleHits, Array.Empty<string>(), executionMs, rows.Count, null, null, cancellationToken);
 
-            // Step 6: Best-effort NL summary from Python summarization service
+            // Step 6: Best-effort NL summary — capped at 3 s so it never delays the response
+            using var summaryCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            summaryCts.CancelAfter(TimeSpan.FromSeconds(3));
             var nlSummary = await summarizationClient.SummarizeAsync(new Nl2SqlSummarizeRequest
             {
                 Question = request.Question,
                 DetectedDomain = agentResponse.DetectedDomain,
                 RowCount = rows.Count,
                 Rows = rows.Take(10).ToList()
-            }, cancellationToken);
+            }, summaryCts.Token);
 
             return new QueryResponse
             {

@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     azure_openai_deployment: Optional[str] = None
     
     # Alternative: Local model (Ollama)
-    use_local_llm: bool = True
+    use_local_llm: bool = False
     local_llm_base_url: str = "http://localhost:11434"
     local_llm_model: str = "llama3.2"
     

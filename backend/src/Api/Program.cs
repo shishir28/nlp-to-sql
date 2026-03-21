@@ -17,6 +17,12 @@ builder.Services.AddSwaggerGen();
 
 // HTTP clients
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("Nl2SqlAgent", client =>
+{
+    var baseUrl = builder.Configuration["AgentService:BaseUrl"] ?? "http://localhost:8000";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(30); // covers LLM generation + network
+});
 
 // Register application services
 builder.Services.AddScoped<INlSqlOrchestrator, NlSqlOrchestrator>();

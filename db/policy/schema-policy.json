@@ -7,7 +7,7 @@
         "default": 50,
         "max": 200
     },
-    "timeoutPolicyMs": 5000,
+    "timeoutPolicyMs": 15000,
     "tenantColumn": "CustomerId",
     "tenantRootTables": [
         "Customers",

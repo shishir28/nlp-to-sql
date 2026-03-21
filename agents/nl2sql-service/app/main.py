@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import json as _json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -269,26 +270,58 @@ async def stream_sql_generation(request: Nl2SqlGenerateRequest) -> StreamingResp
                     "clarification_prompt": "",
                 }
 
-            # Stream graph execution node by node using astream_events
-            agent_sequence = (
-                ["domain_classifier", "schema_prefetch", "schema_analyzer", "sql_generator", "sql_validator"]
-                if USE_LLM else
-                ["route", "schema", "planner", "generate"]
-            )
-
-            for agent_name in agent_sequence:
-                yield _sse_event("agent_start", {"agent": agent_name})
-                await asyncio.sleep(0)  # yield control to event loop
-
-            # Run graph synchronously in thread pool to avoid blocking
+            # Stream graph execution node-by-node using LangGraph stream().
+            # graph.stream() is a synchronous generator so we run it in a thread
+            # and shuttle events back via an asyncio.Queue to keep the SSE
+            # response truly asynchronous.
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, active_graph.invoke, initial_state)
+            queue: asyncio.Queue = asyncio.Queue()
+            final_state: dict = {}
 
-            # Emit sql_generated event once we have the candidate
-            yield _sse_event("sql_generated", {
-                "sql_candidate": result.get("sql_candidate", ""),
-                "detected_domain": result.get("detected_domain"),
-            })
+            def _run_stream():
+                try:
+                    state = initial_state.copy()
+                    for chunk in active_graph.stream(state):
+                        node = list(chunk.keys())[0]
+                        node_data = chunk[node] or {}
+                        final_state.update(node_data)
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait, ("node", node, node_data)
+                        )
+                    loop.call_soon_threadsafe(queue.put_nowait, ("done", None, None))
+                except Exception as exc:
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait, ("error", str(exc), None)
+                    )
+
+            t = threading.Thread(target=_run_stream, daemon=True)
+            t.start()
+
+            sql_emitted = False
+            while True:
+                kind, node, node_data = await queue.get()
+                if kind == "error":
+                    yield _sse_event("error", {"message": node})
+                    return
+                if kind == "done":
+                    break
+
+                # Emit agent_start then agent_complete for each node
+                yield _sse_event("agent_start", {"agent": node})
+                yield _sse_event("agent_complete", {
+                    "agent": node,
+                    "detected_domain": node_data.get("detected_domain"),
+                })
+
+                # Emit sql_generated as soon as we have a candidate
+                if not sql_emitted and node_data.get("sql_candidate"):
+                    sql_emitted = True
+                    yield _sse_event("sql_generated", {
+                        "sql_candidate": node_data["sql_candidate"],
+                        "detected_domain": node_data.get("detected_domain"),
+                    })
+
+            result = final_state
 
             # Emit validation_done
             yield _sse_event("validation_done", {

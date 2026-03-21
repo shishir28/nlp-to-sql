@@ -1,7 +1,6 @@
 """
 LLM initialization and utilities
 """
-from typing import Union
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models import BaseChatModel
 from app.config import settings
@@ -10,43 +9,31 @@ from app.config import settings
 def get_llm() -> BaseChatModel:
     """
     Initialize and return the configured LLM.
-    Supports OpenAI, Azure OpenAI, and local models.
+    Supports OpenAI and Azure OpenAI. Local Ollama is disabled.
     """
-    
-    # Option 1: Use local model (Ollama)
-    if settings.use_local_llm:
-        try:
-            from langchain_ollama import ChatOllama
-        except ImportError:
-            from langchain_community.chat_models import ChatOllama
-        return ChatOllama(
-            base_url=settings.local_llm_base_url,
-            model=settings.local_llm_model,
-            temperature=settings.openai_temperature,
-            timeout=60.0,  # Increase timeout for local models
-            num_predict=512  # Limit response length for faster generation
-        )
-    
-    # Option 2: Azure OpenAI
+
+    # Option 1: Azure OpenAI
     if settings.azure_openai_api_key:
         return ChatOpenAI(
             api_key=settings.azure_openai_api_key,
             azure_endpoint=settings.azure_openai_endpoint,
             azure_deployment=settings.azure_openai_deployment,
             temperature=settings.openai_temperature,
-            model_name=settings.openai_model
+            model_name=settings.openai_model,
+            request_timeout=25,
         )
-    
-    # Option 3: Standard OpenAI (default)
+
+    # Option 2: Standard OpenAI
     if settings.openai_api_key:
         return ChatOpenAI(
             api_key=settings.openai_api_key,
             model=settings.openai_model,
-            temperature=settings.openai_temperature
+            temperature=settings.openai_temperature,
+            request_timeout=25,  # hard per-call cap; avoids hanging on slow responses
         )
-    
-    # Fallback: Use mock LLM for testing without API key
-    print("WARNING: No LLM API key configured. Using template-based fallback.")
+
+    # No key configured — template mode will handle it
+    print("WARNING: No LLM API key configured. LLM agents will be skipped.")
     return None
 
 
