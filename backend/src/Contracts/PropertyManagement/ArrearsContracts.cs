@@ -10,8 +10,8 @@ public sealed class ArrearsEscalationDto
     public string EscalationStage { get; init; } = string.Empty;
     public decimal ArrearsAmount { get; init; }
     public int ArrearsDays { get; init; }
-    public DateOnly EscalationDate { get; init; }
-    public DateOnly? NextActionDate { get; init; }
+    public DateTime EscalationDate { get; init; }
+    public DateTime? NextActionDate { get; init; }
     public string? Notes { get; init; }
     public string? HandledByUserId { get; init; }
     public bool IsResolved { get; init; }

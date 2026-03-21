@@ -44,8 +44,8 @@ public sealed class LeaseRenewalRepository : ILeaseRenewalRepository
         var rows = await conn.QueryAsync<LeaseRenewalOutcomeDto>(@"
             SELECT lr.OutcomeId, lr.TenancyId,
                    t.PropertyId,
-                   CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
-                   CONCAT(tn.FirstName, ' ', tn.LastName) AS TenantName,
+                   CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+                   tn.FullName AS TenantName,
                    t.LeaseEndDate,
                    lr.ProposedNewRent, lr.ProposedStartDate,
                    lr.OutcomeCode, lr.OutcomeDate, lr.Notes, lr.HandledByUserId,

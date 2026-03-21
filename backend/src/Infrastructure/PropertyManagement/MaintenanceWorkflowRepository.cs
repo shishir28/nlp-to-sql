@@ -29,7 +29,7 @@ public sealed class MaintenanceWorkflowRepository : IMaintenanceWorkflowReposito
 
         var jobs = await conn.QueryAsync<MaintenanceJobWorkflowDto>(@"
             SELECT mj.MaintenanceJobId, mj.PropertyId,
-                   CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
+                   CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
                    mj.Description, mj.Status, mj.Priority,
                    mj.QuoteAmount, mj.QuoteReceivedDate, mj.QuoteApprovedDate,
                    mj.QuoteApprovedByUser, mj.InvoiceNumber, mj.InvoiceDate,
@@ -59,16 +59,16 @@ public sealed class MaintenanceWorkflowRepository : IMaintenanceWorkflowReposito
         await conn.OpenAsync(ct);
 
         var rows = await conn.QueryAsync<MaintenanceQuoteDto>(@"
-            SELECT q.QuoteId, q.MaintenanceJobId, q.Description,
+            SELECT q.QuoteId, q.MaintenanceJobId, mj.Description AS Description,
                    q.VendorId, v.CompanyName AS VendorName,
-                   q.Amount, q.Status, q.Notes,
-                   q.QuoteDate, q.ApprovedDate, q.ApprovedByUser, q.CreatedAtUtc
+                   q.QuoteAmount AS Amount, q.StatusCode AS Status, q.Notes,
+                   q.QuoteDate, NULL AS ApprovedDate, NULL AS ApprovedByUser, q.CreatedAtUtc
             FROM MaintenanceQuotes q
             JOIN Vendors v ON v.VendorId = q.VendorId
             JOIN MaintenanceJobs mj ON mj.MaintenanceJobId = q.MaintenanceJobId
             WHERE mj.CustomerId = @CustomerId
               AND q.MaintenanceJobId = @JobId
-            ORDER BY q.Amount ASC",
+            ORDER BY q.QuoteAmount ASC",
             new { CustomerId = customerId, JobId = jobId });
 
         return rows.ToList();
@@ -82,13 +82,11 @@ public sealed class MaintenanceWorkflowRepository : IMaintenanceWorkflowReposito
         var affected = await conn.ExecuteAsync(@"
             UPDATE MaintenanceQuotes q
             JOIN MaintenanceJobs mj ON mj.MaintenanceJobId = q.MaintenanceJobId
-            SET q.Status = 'APPROVED',
-                q.ApprovedDate = CURRENT_DATE,
-                q.ApprovedByUser = @ApprovedByUser,
+            SET q.StatusCode = 'APPROVED',
                 q.Notes = COALESCE(@Notes, q.Notes),
                 mj.QuoteApprovedDate = CURRENT_DATE,
                 mj.QuoteApprovedByUser = @ApprovedByUser,
-                mj.QuoteAmount = q.Amount
+                mj.QuoteAmount = q.QuoteAmount
             WHERE q.QuoteId = @QuoteId
               AND mj.CustomerId = @CustomerId",
             new { QuoteId = quoteId, CustomerId = customerId, request.ApprovedByUser, request.Notes });

@@ -10,7 +10,7 @@ public sealed class TrustLedgerEntryDto
     public string TransactionType { get; init; } = string.Empty;
     public decimal Amount { get; init; }
     public decimal RunningBalance { get; init; }
-    public DateOnly TransactionDate { get; init; }
+    public DateTime TransactionDate { get; init; }
     public string? Reference { get; init; }
     public string? Description { get; init; }
     public DateTime CreatedAtUtc { get; init; }
@@ -38,6 +38,6 @@ public sealed class ManagementFeeScheduleDto
     public decimal? FeePercent { get; init; }
     public decimal? FeeFixed { get; init; }
     public bool IsActive { get; init; }
-    public DateOnly EffectiveFrom { get; init; }
-    public DateOnly? EffectiveTo { get; init; }
+    public DateTime EffectiveFrom { get; init; }
+    public DateTime? EffectiveTo { get; init; }
 }

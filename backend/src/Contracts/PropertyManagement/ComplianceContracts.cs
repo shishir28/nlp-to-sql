@@ -7,8 +7,8 @@ public sealed class ComplianceItemDto
     public string PropertyAddress { get; init; } = string.Empty;
     public string ComplianceType { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
-    public DateOnly? DueDate { get; init; }
-    public DateOnly? LastCheckedDate { get; init; }
+    public DateTime? DueDate { get; init; }
+    public DateTime? LastCheckedDate { get; init; }
     public string Status { get; init; } = string.Empty;
     public bool IsOverdue { get; init; }
     public int DaysUntilDue { get; init; }
@@ -21,8 +21,8 @@ public sealed class ComplianceCheckDto
     public long ComplianceCheckId { get; init; }
     public long ComplianceItemId { get; init; }
     public string Result { get; init; } = string.Empty;
-    public DateOnly CheckDate { get; init; }
-    public DateOnly? NextDueDate { get; init; }
+    public DateTime CheckDate { get; init; }
+    public DateTime? NextDueDate { get; init; }
     public string? CheckedByContractor { get; init; }
     public string? CertificateNumber { get; init; }
     public string? Notes { get; init; }

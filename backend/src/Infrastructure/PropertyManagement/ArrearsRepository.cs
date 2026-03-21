@@ -30,7 +30,7 @@ public sealed class ArrearsRepository : IArrearsRepository
 
         return new ArrearsSummaryDto
         {
-            TotalTenanciesInArrears = escalations.Count,
+            TotalTenanciesInArrears = escalations.Select(e => e.TenancyId).Distinct().Count(),
             TotalArrearsAmount = escalations.Sum(e => e.ArrearsAmount),
             AtTribunalCount = escalations.Count(e => e.EscalationStage == "TRIBUNAL"),
             OnPaymentPlanCount = escalations.Count(e => e.EscalationStage == "PAYMENT_PLAN"),
@@ -46,18 +46,18 @@ public sealed class ArrearsRepository : IArrearsRepository
         var rows = await conn.QueryAsync<ArrearsEscalationDto>(@"
             SELECT ae.EscalationId, ae.TenancyId,
                    t.PropertyId,
-                   CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
-                   CONCAT(tn.FirstName, ' ', tn.LastName) AS TenantName,
-                   ae.EscalationStage, ae.ArrearsAmount, ae.ArrearsDays,
-                   ae.EscalationDate, ae.NextActionDate, ae.Notes,
-                   ae.HandledByUserId, ae.IsResolved, ae.CreatedAtUtc
+                   CONCAT(p.AddressLine1, ', ', p.Suburb) AS PropertyAddress,
+                   tn.FullName AS TenantName,
+                   ae.Stage AS EscalationStage, ae.ArrearsAmountAtStage AS ArrearsAmount,
+                   0 AS ArrearsDays,
+                   ae.EscalationDate, NULL AS NextActionDate, ae.Notes,
+                   ae.HandledByUserId, 0 AS IsResolved, ae.CreatedAtUtc
             FROM ArrearsEscalations ae
             JOIN Tenancies t ON t.TenancyId = ae.TenancyId
             JOIN Properties p ON p.PropertyId = t.PropertyId
             JOIN Tenants tn ON tn.TenantId = t.TenantId
             WHERE ae.CustomerId = @CustomerId
-              AND ae.IsResolved = 0
-            ORDER BY ae.ArrearsAmount DESC
+            ORDER BY ae.ArrearsAmountAtStage DESC
             LIMIT 100",
             new { CustomerId = customerId });
 

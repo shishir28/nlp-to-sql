@@ -8,7 +8,7 @@ public sealed class VacancyDto
     public string Status { get; init; } = string.Empty;
     public decimal? AdvertisedRent { get; init; }
     public string? RentFrequency { get; init; }
-    public DateOnly? AvailableFrom { get; init; }
+    public DateTime? AvailableFrom { get; init; }
     public int DaysVacant { get; init; }
     public int EnquiryCount { get; init; }
     public int ApplicationCount { get; init; }
@@ -38,7 +38,7 @@ public sealed class LettingApplicationDto
     public string? ApplicantEmail { get; init; }
     public string? ApplicantPhone { get; init; }
     public string Status { get; init; } = string.Empty;
-    public DateOnly? ProposedMoveIn { get; init; }
+    public DateTime? ProposedMoveIn { get; init; }
     public decimal? OfferedRent { get; init; }
     public int? ApplicantCount { get; init; }
     public string? Notes { get; init; }

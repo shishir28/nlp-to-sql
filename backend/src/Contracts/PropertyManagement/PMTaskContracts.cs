@@ -9,7 +9,7 @@ public sealed class PMTaskDto
     public string Priority { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
     public string AssignedToUserId { get; init; } = string.Empty;
-    public DateOnly? DueDate { get; init; }
+    public DateTime? DueDate { get; init; }
     public bool IsOverdue { get; init; }
     public long? PropertyId { get; init; }
     public string? PropertyAddress { get; init; }
@@ -26,7 +26,7 @@ public sealed class CreatePMTaskRequest
     public string Category { get; init; } = "OTHER";
     public string Priority { get; init; } = "MEDIUM";
     public string AssignedToUserId { get; init; } = string.Empty;
-    public DateOnly? DueDate { get; init; }
+    public DateTime? DueDate { get; init; }
     public long? PropertyId { get; init; }
     public long? TenancyId { get; init; }
     public long? MaintenanceJobId { get; init; }

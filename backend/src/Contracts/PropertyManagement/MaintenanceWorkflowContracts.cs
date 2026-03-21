@@ -10,8 +10,8 @@ public sealed class MaintenanceQuoteDto
     public decimal Amount { get; init; }
     public string Status { get; init; } = string.Empty;
     public string? Notes { get; init; }
-    public DateOnly? QuoteDate { get; init; }
-    public DateOnly? ApprovedDate { get; init; }
+    public DateTime? QuoteDate { get; init; }
+    public DateTime? ApprovedDate { get; init; }
     public string? ApprovedByUser { get; init; }
     public DateTime CreatedAtUtc { get; init; }
 }
@@ -25,15 +25,15 @@ public sealed class MaintenanceJobWorkflowDto
     public string Status { get; init; } = string.Empty;
     public string Priority { get; init; } = string.Empty;
     public decimal? QuoteAmount { get; init; }
-    public DateOnly? QuoteReceivedDate { get; init; }
-    public DateOnly? QuoteApprovedDate { get; init; }
+    public DateTime? QuoteReceivedDate { get; init; }
+    public DateTime? QuoteApprovedDate { get; init; }
     public string? QuoteApprovedByUser { get; init; }
     public string? InvoiceNumber { get; init; }
-    public DateOnly? InvoiceDate { get; init; }
+    public DateTime? InvoiceDate { get; init; }
     public decimal? InvoiceAmount { get; init; }
-    public DateOnly? InvoicePaidDate { get; init; }
+    public DateTime? InvoicePaidDate { get; init; }
     public string? WorkOrderNumber { get; init; }
-    public DateOnly? ScheduledDate { get; init; }
+    public DateTime? ScheduledDate { get; init; }
     public IReadOnlyList<MaintenanceQuoteDto> Quotes { get; init; } = Array.Empty<MaintenanceQuoteDto>();
 }
 

@@ -27,15 +27,15 @@ public sealed class PMTaskRepository : IPMTaskRepository
     {
         var tasks = await GetTasksAsync(customerId, assignedToUserId, null, ct);
         var open = tasks.Where(t => t.Status != "DONE" && t.Status != "CANCELLED").ToList();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateTime.UtcNow.Date;
         var weekEnd = today.AddDays(7);
 
         return new PMTaskSummaryDto
         {
             OpenCount = open.Count,
             OverdueCount = open.Count(t => t.IsOverdue),
-            DueTodayCount = open.Count(t => t.DueDate == today),
-            DueThisWeekCount = open.Count(t => t.DueDate.HasValue && t.DueDate.Value <= weekEnd),
+            DueTodayCount = open.Count(t => t.DueDate.HasValue && t.DueDate.Value.Date == today),
+            DueThisWeekCount = open.Count(t => t.DueDate.HasValue && t.DueDate.Value.Date <= weekEnd),
             Tasks = tasks
         };
     }
@@ -46,19 +46,19 @@ public sealed class PMTaskRepository : IPMTaskRepository
         await conn.OpenAsync(ct);
 
         var rows = await conn.QueryAsync<PMTaskDto>(@"
-            SELECT pt.TaskId, pt.Title, pt.Description, pt.Category,
-                   pt.Priority, pt.Status, pt.AssignedToUserId,
+            SELECT pt.TaskId, pt.Title, pt.Description,
+                   COALESCE(pt.RelatedEntityType, 'GENERAL') AS Category,
+                   pt.Priority, pt.StatusCode AS Status, pt.AssignedToUserId,
                    pt.DueDate,
-                   CASE WHEN pt.DueDate < CURRENT_DATE AND pt.Status NOT IN ('DONE','CANCELLED') THEN 1 ELSE 0 END AS IsOverdue,
-                   pt.PropertyId,
-                   CONCAT(p.StreetNumber, ' ', p.StreetName, ', ', p.Suburb) AS PropertyAddress,
-                   pt.TenancyId, pt.MaintenanceJobId,
-                   pt.CreatedAtUtc, pt.CompletedAtUtc
+                   CASE WHEN pt.DueDate < CURRENT_DATE AND pt.StatusCode NOT IN ('DONE','CANCELLED') THEN 1 ELSE 0 END AS IsOverdue,
+                   NULL AS PropertyId,
+                   NULL AS PropertyAddress,
+                   NULL AS TenancyId, NULL AS MaintenanceJobId,
+                   pt.CreatedAtUtc, NULL AS CompletedAtUtc
             FROM PMTasks pt
-            LEFT JOIN Properties p ON p.PropertyId = pt.PropertyId
             WHERE pt.CustomerId = @CustomerId
               AND (@AssignedToUserId IS NULL OR pt.AssignedToUserId = @AssignedToUserId)
-              AND (@Status IS NULL OR pt.Status = @Status)
+              AND (@Status IS NULL OR pt.StatusCode = @Status)
             ORDER BY
                 FIELD(pt.Priority, 'URGENT', 'HIGH', 'MEDIUM', 'LOW'),
                 pt.DueDate ASC
@@ -74,10 +74,10 @@ public sealed class PMTaskRepository : IPMTaskRepository
         await conn.OpenAsync(ct);
 
         var id = await conn.ExecuteScalarAsync<long>(@"
-            INSERT INTO PMTasks (CustomerId, Title, Description, Category, Priority, Status,
-                                  AssignedToUserId, DueDate, PropertyId, TenancyId, MaintenanceJobId, CreatedAtUtc)
+            INSERT INTO PMTasks (CustomerId, Title, Description, RelatedEntityType, Priority, StatusCode,
+                                  AssignedToUserId, DueDate, CreatedAtUtc)
             VALUES (@CustomerId, @Title, @Description, @Category, @Priority, 'OPEN',
-                    @AssignedToUserId, @DueDate, @PropertyId, @TenancyId, @MaintenanceJobId, UTC_TIMESTAMP());
+                    @AssignedToUserId, @DueDate, UTC_TIMESTAMP());
             SELECT LAST_INSERT_ID();",
             new
             {
@@ -87,10 +87,7 @@ public sealed class PMTaskRepository : IPMTaskRepository
                 request.Category,
                 request.Priority,
                 request.AssignedToUserId,
-                request.DueDate,
-                request.PropertyId,
-                request.TenancyId,
-                request.MaintenanceJobId
+                request.DueDate
             });
 
         return new PMTaskDto
@@ -117,8 +114,8 @@ public sealed class PMTaskRepository : IPMTaskRepository
 
         var affected = await conn.ExecuteAsync(@"
             UPDATE PMTasks
-            SET Status = @Status,
-                CompletedAtUtc = CASE WHEN @Status = 'DONE' THEN UTC_TIMESTAMP() ELSE CompletedAtUtc END
+            SET StatusCode = @Status,
+                CompletedDate = CASE WHEN @Status = 'DONE' THEN UTC_TIMESTAMP() ELSE CompletedDate END
             WHERE TaskId = @TaskId AND CustomerId = @CustomerId",
             new { TaskId = taskId, CustomerId = customerId, request.Status });
 

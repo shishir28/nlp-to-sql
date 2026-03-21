@@ -7,11 +7,11 @@ public sealed class LeaseRenewalOutcomeDto
     public long PropertyId { get; init; }
     public string PropertyAddress { get; init; } = string.Empty;
     public string TenantName { get; init; } = string.Empty;
-    public DateOnly? LeaseEndDate { get; init; }
+    public DateTime? LeaseEndDate { get; init; }
     public decimal? ProposedNewRent { get; init; }
-    public DateOnly? ProposedStartDate { get; init; }
+    public DateTime? ProposedStartDate { get; init; }
     public string OutcomeCode { get; init; } = string.Empty;
-    public DateOnly OutcomeDate { get; init; }
+    public DateTime OutcomeDate { get; init; }
     public string? Notes { get; init; }
     public string? HandledByUserId { get; init; }
     public DateTime CreatedAtUtc { get; init; }
